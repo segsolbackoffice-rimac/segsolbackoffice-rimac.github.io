@@ -331,6 +331,14 @@
     min-width: 240px;
   }
   .grupo-botones { display: flex; gap: 8px; flex-wrap: wrap; }
+  .filtros-registro { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .filtro-status-registro { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--azul); }
+  .filtro-status-registro select { padding: 7px 8px; border: 1px solid var(--borde); border-radius: 6px; font-size: 13px; font-family: inherit; }
+  .celda-status-registro { white-space: nowrap; }
+  .status-registro { font-weight: 700; letter-spacing: .3px; margin-right: 6px; }
+  .status-registro.activo { color: var(--verde); }
+  .status-registro.cesado { color: var(--rojo); }
+  .btn-cambiar-status { padding: 3px 8px; font-size: 11px; background: #e5e9ee; color: var(--gris-texto); }
 
   .tabla-wrap {
     overflow-x: auto;
@@ -502,6 +510,44 @@
     margin: 0 auto;
     border-radius: 6px;
     background: #000;
+  }
+  /* ---- Visor de documentos de Flota (previsualización + descarga) ---- */
+  .visor-doc-flota { padding: 16px; }
+  .visor-doc-caja {
+    background: #fff; border-radius: 12px; width: min(920px, 100%); max-height: 94vh;
+    overflow: auto; padding: 18px 20px; box-shadow: 0 14px 40px rgba(0,0,0,.35);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .visor-doc-cabecera { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .visor-doc-cabecera h3 { margin: 0 0 6px 0; color: var(--azul); font-size: 17px; }
+  .visor-doc-cerrar { background: #e5e9ee; color: #222; width: 34px; height: 34px; border-radius: 50%; font-size: 20px; padding: 0; line-height: 34px; flex: none; }
+  .visor-doc-detalles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+  .visor-doc-dato { background: var(--azul-claro); border: 1px solid var(--borde); border-radius: 8px; padding: 8px 10px; }
+  .visor-doc-dato span { display: block; font-size: 11px; color: var(--gris-suave); text-transform: uppercase; letter-spacing: .3px; font-weight: 600; }
+  .visor-doc-dato b { font-size: 13.5px; color: var(--gris-texto); word-break: break-word; }
+  .visor-doc-dato.ancho { grid-column: 1 / -1; }
+  .visor-doc-escenario { display: flex; align-items: center; gap: 8px; background: #111; border-radius: 10px; padding: 8px; min-height: 260px; }
+  .visor-doc-media { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; }
+  .visor-doc-media img, .visor-doc-media video { max-width: 100%; max-height: 58vh; display: block; border-radius: 6px; }
+  .visor-doc-media .vacio { color: #ccc; }
+  .visor-doc-flecha { background: rgba(255,255,255,.15); color: #fff; font-size: 26px; width: 40px; height: 56px; padding: 0; border-radius: 8px; flex: none; }
+  .visor-doc-flecha:disabled { opacity: .25; cursor: default; }
+  .visor-doc-contador { text-align: center; font-size: 12.5px; color: var(--gris-suave); margin-top: -4px; }
+  .visor-doc-miniaturas { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .visor-doc-miniaturas .miniatura-foto-flota { width: 64px; height: 64px; opacity: .6; }
+  .visor-doc-miniaturas .miniatura-foto-flota.activa { opacity: 1; outline: 3px solid var(--azul); outline-offset: 1px; }
+  .visor-doc-pie { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--borde); padding-top: 12px; }
+  .visor-doc-estado { margin-right: auto; font-size: 12.5px; color: var(--gris-suave); }
+  .visor-doc-pie button:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-ver-documento-flota { background: var(--azul); color: #fff; }
+  #subvistaFlotaDocumentos table.tabla-mapa { min-width: 860px; }
+  .acciones-doc-flota { display: flex; flex-direction: column; gap: 4px; min-width: 96px; }
+  .acciones-doc-flota button { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+  @media (max-width: 600px) {
+    .visor-doc-caja { padding: 14px; }
+    .visor-doc-escenario { min-height: 180px; }
+    .visor-doc-flecha { width: 30px; height: 44px; font-size: 22px; }
+    .visor-doc-pie button { flex: 1 1 auto; }
   }
   .modal-media-flota-cerrar {
     position: absolute;
@@ -1354,6 +1400,55 @@
   }
 
   /* ---- Modal ---- */
+  /* ---- Respaldos (Administración) ---- */
+  .aviso-respaldo {
+    background: #fff3cd;
+    border: 1px solid #ffe08a;
+    color: #7a5b00;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin: 0 0 14px 0;
+  }
+  .aviso-respaldo button { margin-left: 8px; padding: 5px 10px; font-size: 12px; }
+  .aviso-respaldo-peligro { background: #fdecea; border-color: #f5c6c0; color: #8a2a1f; margin: 0; }
+  .resumen-respaldos {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .resumen-respaldos-item {
+    background: var(--azul-claro);
+    border: 1px solid var(--borde);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .resumen-respaldos-label { font-size: 11.5px; color: var(--gris-suave); text-transform: uppercase; letter-spacing: .3px; font-weight: 600; }
+  .resumen-respaldos-valor { font-size: 14px; font-weight: 700; color: var(--azul); }
+  .resumen-respaldos-item select { padding: 6px 8px; font-size: 13px; }
+  .botones-respaldo { display: flex; flex-wrap: wrap; gap: 8px; }
+  .botones-respaldo button:disabled, #cuerpoTablaRespaldos button:disabled, #btnConfirmarRestaurar:disabled { opacity: .45; cursor: not-allowed; }
+  .estado-respaldo { font-size: 13px; color: var(--gris-suave); margin: 10px 0 0 0; min-height: 18px; }
+  .estado-respaldo.ok { color: var(--verde); font-weight: 600; }
+  .estado-respaldo.error { color: var(--rojo); font-weight: 600; }
+  .tipo-respaldo { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11.5px; font-weight: 600; background: #e5e9ee; color: var(--gris-texto); }
+  .tipo-respaldo.auto { background: #e3f6ec; color: #00733d; }
+  .tipo-respaldo.manual { background: var(--azul-claro); color: var(--azul); }
+  .tipo-respaldo.previo { background: #fff3cd; color: #7a5b00; }
+  #cuerpoTablaRespaldos td button { padding: 5px 10px; font-size: 12px; margin: 2px 4px 2px 0; }
+  .modal-box.modal-box-ancho { max-width: 560px; max-height: 92vh; overflow: auto; }
+  table.tabla-mapa.tabla-compacta { min-width: 0; width: 100%; }
+  .tabla-compacta th, .tabla-compacta td { padding: 6px 8px; font-size: 12.5px; }
+  .tabla-compacta td:not(:first-child), .tabla-compacta th:not(:first-child) { text-align: right; white-space: nowrap; }
+  #inputConfirmarRestaurar { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--borde); border-radius: 6px; font-size: 13px; font-family: inherit; letter-spacing: .5px; }
+  #panelRespaldos table.tabla-mapa { min-width: 640px; }
+  .check-respaldo { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; cursor: pointer; }
+  .check-respaldo input { width: auto; }
+
   .modal-overlay {
     position: fixed;
     inset: 0;
@@ -2268,6 +2363,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
       </div>
     </div>
 
+    <div class="aviso-respaldo" id="avisoRespaldoInicio" style="display:none"></div>
+
     <div class="resumen-inicio" id="resumenInicio">
       <div class="resumen-inicio-item">
         <span class="resumen-inicio-valor" id="resInicioColaboradores">0</span>
@@ -2379,15 +2476,20 @@ svg.leaflet-image-layer.leaflet-interactive path {
         </div>
 
         <div class="campo">
+          <label for="status">Status</label>
+          <select id="status" name="status">
+            <option value="ACTIVO">ACTIVO</option>
+            <option value="CESADO">CESADO</option>
+          </select>
+        </div>
+
+        <div class="campo">
           <label for="condicion">Condición</label>
-          <input type="text" id="condicion" name="condicion" list="listaCondicion" placeholder="Ej: Planilla">
-          <datalist id="listaCondicion">
-            <option value="Planilla">
-            <option value="CAS">
-            <option value="Recibo por Honorarios">
-            <option value="Locación de Servicios">
-            <option value="Practicante">
-          </datalist>
+          <select id="condicion" name="condicion">
+            <option value="">-- Selecciona --</option>
+            <option value="Planilla">Planilla</option>
+            <option value="Eventual">Eventual</option>
+          </select>
         </div>
 
         <div class="campo">
@@ -2547,7 +2649,16 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <h2>Base de datos de personal</h2>
 
       <div class="barra-tabla">
-        <input type="search" id="buscador" placeholder="Buscar por nombre, DNI, cargo, condición...">
+        <div class="filtros-registro">
+          <input type="search" id="buscador" placeholder="Buscar por nombre, DNI, cargo, condición...">
+          <label class="filtro-status-registro" for="filtroStatusRegistro">Status:
+            <select id="filtroStatusRegistro">
+              <option value="">Todos</option>
+              <option value="ACTIVO">Solo ACTIVOS</option>
+              <option value="CESADO">Solo CESADOS</option>
+            </select>
+          </label>
+        </div>
         <div class="grupo-botones">
           <button type="button" class="btn-secundario" id="btnExportarCsv">Exportar CSV</button>
           <button type="button" class="btn-secundario" id="btnExportarJson">Exportar JSON (respaldo)</button>
@@ -2564,6 +2675,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
           <thead>
             <tr>
               <th>Fecha de Ingreso</th>
+              <th>Status</th>
               <th>Condición</th>
               <th>Cargo</th>
               <th>Nombres</th>
@@ -2781,6 +2893,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     </div>
 
     <datalist id="datalistPersonalGlobal"></datalist>
+    <datalist id="datalistPersonalActivo"></datalist>
 
     <!-- ---- Sub-vista: Base de datos ---- -->
     <div id="subvistaBaseDatosAsistencia">
@@ -2821,7 +2934,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
           </div>
           <div class="campo">
             <label for="inasistNombre">Nombre del colaborador</label>
-            <input type="text" id="inasistNombre" list="datalistPersonalGlobal" placeholder="Escribe o elige un nombre">
+            <input type="text" id="inasistNombre" list="datalistPersonalActivo" placeholder="Escribe o elige un nombre">
           </div>
           <div class="campo">
             <label for="inasistPuesto">Puesto</label>
@@ -4465,6 +4578,31 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
     <!-- Visor de fotos/videos de Flota: se abre en la misma página en vez de una pestaña nueva,
          porque los navegadores actuales bloquean abrir una pestaña con una imagen/video en base64. -->
+    <div id="modalVerDocFlota" class="modal-media-flota visor-doc-flota" style="display:none">
+      <div class="visor-doc-caja" role="dialog" aria-labelledby="visorDocTitulo">
+        <div class="visor-doc-cabecera">
+          <div>
+            <h3 id="visorDocTitulo">Documento</h3>
+            <span id="visorDocSemaforo"></span>
+          </div>
+          <button type="button" class="visor-doc-cerrar" id="btnCerrarVisorDoc" title="Cerrar">×</button>
+        </div>
+        <div class="visor-doc-detalles" id="visorDocDetalles"></div>
+        <div class="visor-doc-escenario">
+          <button type="button" class="visor-doc-flecha" id="btnVisorDocAnterior" title="Anterior">‹</button>
+          <div class="visor-doc-media" id="visorDocMedia"></div>
+          <button type="button" class="visor-doc-flecha" id="btnVisorDocSiguiente" title="Siguiente">›</button>
+        </div>
+        <div class="visor-doc-contador" id="visorDocContador"></div>
+        <div class="visor-doc-miniaturas" id="visorDocMiniaturas"></div>
+        <div class="visor-doc-pie">
+          <span class="visor-doc-estado" id="visorDocEstado"></span>
+          <button type="button" class="btn-secundario" id="btnVisorDocDescargarUna">⬇️ Descargar esta</button>
+          <button type="button" class="btn-agregar" id="btnVisorDocDescargarTodas">⬇️ Descargar todas</button>
+        </div>
+      </div>
+    </div>
+
     <div id="modalMediaFlota" class="modal-media-flota" style="display:none">
       <div class="modal-media-flota-contenido">
         <button type="button" id="btnCerrarModalMediaFlota" class="modal-media-flota-cerrar" title="Cerrar">×</button>
@@ -4747,8 +4885,89 @@ svg.leaflet-image-layer.leaflet-interactive path {
         </table>
       </div>
     </div>
+
+    <!-- ===================== RESPALDOS (solo administradores) ===================== -->
+    <div class="panel" id="panelRespaldos">
+      <h2>Respaldos de la información</h2>
+      <p class="ayuda-guardar" style="margin:0 0 12px 0;">SEGSOL guarda <b>una copia completa de todos los módulos en la nube una vez al día</b>, de forma automática, la primera vez que alguien abre la app ese día. Además puedes descargar un archivo con todo para guardarlo fuera de la nube (en tu computadora, Google Drive o una USB). Solo los administradores pueden ver, descargar y restaurar respaldos.</p>
+
+      <div id="avisoRespaldoAdmin" class="aviso-respaldo" style="display:none"></div>
+
+      <div class="resumen-respaldos">
+        <div class="resumen-respaldos-item">
+          <span class="resumen-respaldos-label">Último respaldo automático</span>
+          <span class="resumen-respaldos-valor" id="resRespaldoUltimoAuto">—</span>
+        </div>
+        <div class="resumen-respaldos-item">
+          <span class="resumen-respaldos-label">Último archivo descargado</span>
+          <span class="resumen-respaldos-valor" id="resRespaldoUltimaDescarga">—</span>
+        </div>
+        <div class="resumen-respaldos-item">
+          <span class="resumen-respaldos-label">Espacio usado por respaldos</span>
+          <span class="resumen-respaldos-valor" id="resRespaldoEspacio">—</span>
+        </div>
+        <div class="resumen-respaldos-item">
+          <label class="resumen-respaldos-label" for="selectMaxCopiasRespaldo">Copias a conservar en la nube</label>
+          <select id="selectMaxCopiasRespaldo">
+            <option value="7">7 (una semana)</option>
+            <option value="15">15</option>
+            <option value="30">30 (un mes)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="botones-respaldo">
+        <button type="button" class="btn-agregar" id="btnRespaldoNubeAhora">☁️ Hacer respaldo en la nube ahora</button>
+        <button type="button" class="btn-agregar" id="btnRespaldarTodoArchivo">⬇️ Respaldar todo (descargar archivo)</button>
+        <button type="button" class="btn-peligro" id="btnRestaurarDesdeArchivo">⬆️ Restaurar desde archivo</button>
+        <input type="file" id="inputArchivoRespaldo" accept=".json,application/json" style="display:none">
+      </div>
+      <p class="estado-respaldo" id="estadoRespaldo"></p>
+
+      <h3 class="subtitulo-grupo" style="margin-top:18px;">Copias guardadas en la nube</h3>
+      <div class="tabla-wrap">
+        <table class="tabla-mapa">
+          <thead>
+            <tr>
+              <th>Fecha y hora</th>
+              <th>Tipo</th>
+              <th>Hecho por</th>
+              <th>Tamaño</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody id="cuerpoTablaRespaldos"></tbody>
+        </table>
+      </div>
+    </div>
   </section>
 
+</div>
+
+<div class="modal-overlay" id="modalRestaurarRespaldo">
+  <div class="modal-box modal-box-ancho">
+    <h3 id="modalRestaurarTitulo">Restaurar respaldo</h3>
+    <p id="modalRestaurarTexto"></p>
+    <div class="tabla-wrap" style="max-height:260px; overflow:auto; margin:8px 0 12px 0;">
+      <table class="tabla-mapa tabla-compacta">
+        <thead><tr><th>Módulo</th><th>En el respaldo</th><th>Actual</th></tr></thead>
+        <tbody id="cuerpoTablaVistaPreviaRespaldo"></tbody>
+      </table>
+    </div>
+    <label class="check-respaldo">
+      <input type="checkbox" id="chkRestaurarUsuarios"> Restaurar también los usuarios y contraseñas
+    </label>
+    <p class="ayuda-guardar" style="margin:4px 0 12px 0;">Si no lo marcas, los usuarios y contraseñas se quedan como están ahora.</p>
+    <div class="aviso-respaldo aviso-respaldo-peligro">
+      Esto <b>reemplaza la información actual de todos los módulos</b> para todas las computadoras. Antes de hacerlo, SEGSOL guarda una copia de cómo está todo ahora (por si te equivocas de fecha).
+    </div>
+    <label for="inputConfirmarRestaurar" style="font-size:13px; font-weight:600; display:block; margin:12px 0 4px 0;">Para confirmar, escribe RESTAURAR:</label>
+    <input type="text" id="inputConfirmarRestaurar" autocomplete="off" placeholder="RESTAURAR">
+    <div class="modal-botones" style="margin-top:14px;">
+      <button type="button" class="btn-eliminar" id="btnConfirmarRestaurar" disabled>Restaurar</button>
+      <button type="button" class="btn-secundario" id="btnCancelarRestaurar">Cancelar</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="modalImportarExcel">
@@ -5113,7 +5332,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function activarEscuchasNube() {
     registrosSincronizacion.forEach(function (r) {
       dbNube.collection('segsol').doc(r.nombreDoc).onSnapshot(function (snap) {
-        if (!snap.exists) return;
+        if (!snap.exists) { marcarDocRecibidoNube(r.nombreDoc, true); return; }
         const contenido = snap.data();
         if (!contenido || typeof contenido.data === 'undefined') return;
         aplicandoCambioRemoto = true;
@@ -5128,7 +5347,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         } finally {
           aplicandoCambioRemoto = false;
         }
+        marcarDocRecibidoNube(r.nombreDoc, true);
       }, function (err) {
+        marcarDocRecibidoNube(r.nombreDoc, false);
         console.error('Error escuchando cambios de "' + r.nombreDoc + '":', err);
         actualizarBadgeSync('sync-error', '⚠️ Sin conexión con la nube');
       });
@@ -5136,7 +5357,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     registrosSincronizacionFragmentada.forEach(function (r) {
       dbNube.collection('segsol').doc(r.nombreDoc + '_meta').onSnapshot(function (snapMeta) {
-        if (!snapMeta.exists) return;
+        if (!snapMeta.exists) { marcarDocRecibidoNube(r.nombreDoc, true); return; }
         const meta = snapMeta.data();
         const numFragmentos = (meta && meta.numFragmentos) || 0;
         ultimosNumFragmentosNube[r.nombreDoc] = numFragmentos;
@@ -5161,11 +5382,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           } finally {
             aplicandoCambioRemoto = false;
           }
+          marcarDocRecibidoNube(r.nombreDoc, true);
         }).catch(function (err) {
+          marcarDocRecibidoNube(r.nombreDoc, false);
           console.error('Error leyendo fragmentos de "' + r.nombreDoc + '":', err);
           actualizarBadgeSync('sync-error', '⚠️ Sin conexión con la nube');
         });
       }, function (err) {
+        marcarDocRecibidoNube(r.nombreDoc, false);
         console.error('Error escuchando cambios de "' + r.nombreDoc + '_meta":', err);
         actualizarBadgeSync('sync-error', '⚠️ Sin conexión con la nube');
       });
@@ -5192,6 +5416,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         nubeAutenticada = true;
         actualizarBadgeSync('sync-ok', '☁️ Sincronizado');
         activarEscuchasNube();
+        escucharIndiceRespaldos();
+        renderPanelRespaldos();
       }
     });
 
@@ -5307,6 +5533,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
     if (nombre === 'inicio') {
       renderResumenInicio();
+      actualizarAvisosRespaldo();
     }
     if (nombre === 'asistencia') {
       renderBloques();
@@ -5362,6 +5589,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
     if (nombre === 'admin') {
       renderTablaUsuarios();
+      renderPanelRespaldos();
     }
     window.scrollTo(0, 0);
   }
@@ -5474,6 +5702,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // Las cuentas de colaborador (creadas desde Administración para que un colaborador vea solo
     // su propia asistencia y descuentos) entran directo a ese apartado, no al menú de Inicio.
     mostrarVista(u.colaboradorVinculado ? 'pago' : 'inicio');
+    programarRespaldoAutomatico();
   }
 
   async function intentarLogin() {
@@ -5856,21 +6085,47 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     guardarEnNube('registros', registros);
   }
 
+  // Status del colaborador: ACTIVO o CESADO. Los registros antiguos que no tienen status se
+  // consideran ACTIVOS.
+  function statusRegistro(r) {
+    return (r && (r.status || '').toString().trim().toUpperCase() === 'CESADO') ? 'CESADO' : 'ACTIVO';
+  }
+  function normalizarStatusPersonal(valor) {
+    const t = (valor || '').toString().trim().toUpperCase();
+    if (['CESADO', 'CESADA', 'CESE', 'INACTIVO', 'INACTIVA', 'BAJA', 'RETIRADO', 'RETIRADA'].indexOf(t) !== -1) return 'CESADO';
+    return 'ACTIVO';
+  }
+  // Condición: solo "Planilla" o "Eventual" (se aceptan variantes al importar).
+  function normalizarCondicionPersonal(valor) {
+    const t = (valor || '').toString().trim();
+    const m = t.toUpperCase();
+    if (m === 'PLANILLA') return 'Planilla';
+    if (m === 'EVENTUAL' || m === 'EVENTUALES') return 'Eventual';
+    return t;
+  }
+
   function renderTabla(filtro) {
     const texto = (filtro || '').toLowerCase().trim();
+    const selectStatus = document.getElementById('filtroStatusRegistro');
+    const filtroStatus = selectStatus ? selectStatus.value : '';
     const filtrados = registros.filter(function (r, idx) {
       r.__idx = idx;
+      if (filtroStatus && statusRegistro(r) !== filtroStatus) return false;
       if (!texto) return true;
       return Object.values(r).join(' ').toLowerCase().includes(texto);
     });
 
     if (filtrados.length === 0) {
-      cuerpoTabla.innerHTML = '<tr><td colspan="26" class="vacio">No hay registros para mostrar.</td></tr>';
+      cuerpoTabla.innerHTML = '<tr><td colspan="27" class="vacio">No hay registros para mostrar.</td></tr>';
     } else {
       cuerpoTabla.innerHTML = filtrados.map(function (r) {
         return `
           <tr>
             <td>${escaparHtml(formatearFecha(r.fechaIngreso))}</td>
+            <td class="celda-status-registro">
+              <span class="status-registro ${statusRegistro(r) === 'CESADO' ? 'cesado' : 'activo'}">${statusRegistro(r)}</span>
+              <button type="button" class="btn-cambiar-status" data-idx="${r.__idx}" title="${statusRegistro(r) === 'CESADO' ? 'Marcar como ACTIVO' : 'Marcar como CESADO'}">${statusRegistro(r) === 'CESADO' ? 'Activar' : 'Cesar'}</button>
+            </td>
             <td>${escaparHtml(r.condicion)}</td>
             <td>${escaparHtml(r.cargo)}</td>
             <td>${escaparHtml(r.nombres)}</td>
@@ -5901,8 +6156,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }).join('');
     }
 
+    const totalActivos = registros.filter(function (r) { return statusRegistro(r) === 'ACTIVO'; }).length;
     contador.textContent = `${registros.length} registro${registros.length === 1 ? '' : 's'} en total` +
-      (texto ? ` (mostrando ${filtrados.length})` : '');
+      ` (${totalActivos} activo${totalActivos === 1 ? '' : 's'}, ${registros.length - totalActivos} cesado${registros.length - totalActivos === 1 ? '' : 's'})` +
+      ((texto || filtroStatus) ? ` — mostrando ${filtrados.length}` : '');
 
     if (typeof actualizarDatalistPersonal === 'function') actualizarDatalistPersonal();
     if (typeof actualizarSelectHistorialEpp === 'function') actualizarSelectHistorialEpp();
@@ -5913,6 +6170,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     try {
       const nuevo = {
         fechaIngreso: document.getElementById('fechaIngreso').value,
+        status: document.getElementById('status').value || 'ACTIVO',
         condicion: document.getElementById('condicion').value.trim(),
         cargo: document.getElementById('cargo').value.trim(),
         nombres: document.getElementById('nombres').value.trim(),
@@ -5939,7 +6197,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         refTelefono: document.getElementById('refTelefono').value.trim()
       };
 
-      const tieneAlgunDato = Object.values(nuevo).some(function (v) { return v && v.length > 0; });
+      const tieneAlgunDato = Object.keys(nuevo).some(function (k) { return k !== 'status' && nuevo[k] && nuevo[k].length > 0; });
       if (!tieneAlgunDato) {
         alert('Completa al menos un campo antes de agregar el registro.');
         return;
@@ -5968,6 +6226,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return false;
   });
 
+  function quitarOpcionCondicionAntigua() {
+    document.querySelectorAll('#condicion option[data-antigua]').forEach(function (o) { o.remove(); });
+  }
+  formRegistro.addEventListener('reset', function () {
+    setTimeout(quitarOpcionCondicionAntigua, 0);
+  });
+
   function cancelarEdicionRegistro() {
     document.getElementById('registroEditIdx').value = '';
     document.getElementById('tituloFormRegistro').textContent = 'Agregar nuevo colaborador';
@@ -5978,17 +6243,44 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   document.getElementById('btnCancelarEdicionRegistro').addEventListener('click', cancelarEdicionRegistro);
 
   cuerpoTabla.addEventListener('click', function (e) {
+    const btnStatus = e.target.closest('.btn-cambiar-status');
+    if (btnStatus) {
+      const idx = parseInt(btnStatus.getAttribute('data-idx'), 10);
+      const r = registros[idx];
+      if (!r) return;
+      const nuevoStatus = statusRegistro(r) === 'ACTIVO' ? 'CESADO' : 'ACTIVO';
+      const nombre = ((r.nombres || '') + ' ' + (r.apellidos || '')).trim() || 'este colaborador';
+      if (!confirm('¿Marcar a ' + nombre + ' como ' + nuevoStatus + '?')) return;
+      r.status = nuevoStatus;
+      delete r.__idx;
+      guardarRegistros();
+      renderTabla(buscador.value);
+      return;
+    }
     const btnEditar = e.target.closest('.btn-editar-registro');
     if (btnEditar) {
       const idx = parseInt(btnEditar.getAttribute('data-idx'), 10);
       const r = registros[idx];
       if (!r) return;
       document.getElementById('registroEditIdx').value = idx;
+      quitarOpcionCondicionAntigua();
       Object.keys(r).forEach(function (campo) {
         if (campo === '__idx') return;
         const el = document.getElementById(campo);
         if (el) el.value = r[campo] || '';
       });
+      document.getElementById('status').value = statusRegistro(r);
+      // Si el colaborador tiene una condición antigua (CAS, Practicante, etc.), se muestra
+      // temporalmente para no borrarla sin querer; al elegir Planilla o Eventual se reemplaza.
+      const selCondicion = document.getElementById('condicion');
+      if (r.condicion && selCondicion.value !== r.condicion) {
+        const opt = document.createElement('option');
+        opt.value = r.condicion;
+        opt.textContent = r.condicion + ' (anterior)';
+        opt.setAttribute('data-antigua', '1');
+        selCondicion.appendChild(opt);
+        selCondicion.value = r.condicion;
+      }
       document.getElementById('tituloFormRegistro').textContent = 'Editar colaborador';
       document.getElementById('btnGuardarFormRegistro').textContent = '💾 Guardar cambios';
       document.getElementById('btnCancelarEdicionRegistro').style.display = '';
@@ -6008,6 +6300,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   buscador.addEventListener('input', function () {
     renderTabla(buscador.value);
   });
+  document.getElementById('filtroStatusRegistro').addEventListener('change', function () {
+    renderTabla(buscador.value);
+  });
 
   document.getElementById('btnVaciar').addEventListener('click', function () {
     if (registros.length === 0) return;
@@ -6023,10 +6318,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   });
 
   document.getElementById('btnExportarCsv').addEventListener('click', function () {
-    const encabezados = ['Fecha de Ingreso','Condición','Cargo','Nombres','Apellidos','Fecha de Nacimiento','Departamento de Nacimiento','Provincia de Nacimiento','Distrito de Nacimiento','Nacionalidad','DNI / CEE','Licencia de conducir','Sexo','Nivel de instrucción','Dirección','Altitud','Latitud','Departamento de residencia','Provincia de residencia','Distrito de Residencia','Celular','Correo electrónico','Datos de referencia personal','Parentesco de referencia personal','Teléfono'];
+    const encabezados = ['Fecha de Ingreso','Status','Condición','Cargo','Nombres','Apellidos','Fecha de Nacimiento','Departamento de Nacimiento','Provincia de Nacimiento','Distrito de Nacimiento','Nacionalidad','DNI / CEE','Licencia de conducir','Sexo','Nivel de instrucción','Dirección','Altitud','Latitud','Departamento de residencia','Provincia de residencia','Distrito de Residencia','Celular','Correo electrónico','Datos de referencia personal','Parentesco de referencia personal','Teléfono'];
     const filas = registros.map(function (r) {
       return [
-        formatearFecha(r.fechaIngreso), r.condicion, r.cargo, r.nombres, r.apellidos, formatearFecha(r.fechaNacimiento),
+        formatearFecha(r.fechaIngreso), statusRegistro(r), r.condicion, r.cargo, r.nombres, r.apellidos, formatearFecha(r.fechaNacimiento),
         r.depNacimiento, r.provNacimiento, r.distNacimiento, r.nacionalidad, r.dni, r.licenciaConducir, r.sexo, r.nivelInstruccion,
         r.direccion, r.altitud, r.latitud, r.depResidencia, r.provResidencia, r.distResidencia, r.celular, r.correo,
         r.refNombre, r.refParentesco, r.refTelefono
@@ -6066,6 +6361,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   /* Registro de Personal (base maestra de colaboradores, 25 campos) */
   const ALIAS_CAMPOS_EXCEL_PERSONAL = {
     fechaIngreso: ['FECHADEINGRESO', 'FECHAINGRESO'],
+    status: ['STATUS', 'ESTATUS', 'SITUACION'],
     condicion: ['CONDICION'],
     cargo: ['CARGO', 'PUESTO'],
     nombres: ['NOMBRES', 'NOMBRE'],
@@ -6093,7 +6389,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   };
 
   const PLANTILLA_EXCEL_PERSONAL = {
-    fechaIngreso: '', condicion: '', cargo: '', nombres: '', apellidos: '', fechaNacimiento: '',
+    fechaIngreso: '', status: 'ACTIVO', condicion: '', cargo: '', nombres: '', apellidos: '', fechaNacimiento: '',
     depNacimiento: '', provNacimiento: '', distNacimiento: '', nacionalidad: '', dni: '', licenciaConducir: '',
     sexo: '', nivelInstruccion: '', direccion: '', altitud: '', latitud: '', depResidencia: '', provResidencia: '',
     distResidencia: '', celular: '', correo: '', refNombre: '', refParentesco: '', refTelefono: ''
@@ -6177,6 +6473,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const camposNumericos = ['dni', 'celular', 'refTelefono', 'altitud', 'latitud'];
     if (camposFecha.indexOf(campo) !== -1) return convertirFechaExcel(valor);
     if (camposNumericos.indexOf(campo) !== -1) return convertirTextoNumericoExcel(valor);
+    if (campo === 'status') return normalizarStatusPersonal(valor);
+    if (campo === 'condicion') return normalizarCondicionPersonal(valor);
     return (valor === null || valor === undefined) ? '' : valor.toString().trim();
   }
 
@@ -6219,7 +6517,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       aliases: ALIAS_CAMPOS_EXCEL_PERSONAL,
       plantilla: PLANTILLA_EXCEL_PERSONAL,
       convertirValor: convertirValorCampoExcelPersonal,
-      pistaEncabezados: 'FECHA DE INGRESO, CONDICIÓN, CARGO, NOMBRES, APELLIDOS, DNI / CEE, CELULAR, entre otros'
+      pistaEncabezados: 'FECHA DE INGRESO, STATUS, CONDICIÓN, CARGO, NOMBRES, APELLIDOS, DNI / CEE, CELULAR, entre otros'
     },
     postulantes: {
       nombre: 'Registro de Postulantes',
@@ -6801,7 +7099,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function actualizarDatalistPersonal() {
     const datalist = document.getElementById('datalistPersonalGlobal');
     const datalistCaja = document.getElementById('datalistPersonalCaja');
-    if (!datalist && !datalistCaja) return;
+    const datalistActivo = document.getElementById('datalistPersonalActivo');
+    if (!datalist && !datalistCaja && !datalistActivo) return;
     const vistos = {};
     let html = '';
     registros.forEach(function (r) {
@@ -6814,6 +7113,37 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
     if (datalist) datalist.innerHTML = html;
     if (datalistCaja) datalistCaja.innerHTML = html;
+    // Asistencia usa una lista aparte con SOLO el personal ACTIVO (los CESADOS no aparecen).
+    if (datalistActivo) {
+      const vistosActivos = {};
+      let htmlActivos = '';
+      registros.forEach(function (r) {
+        const nombre = `${r.nombres || ''} ${r.apellidos || ''}`.trim();
+        if (!nombre || colaboradorEstaCesado(nombre)) return;
+        const clave = nombre.toLowerCase();
+        if (vistosActivos[clave]) return;
+        vistosActivos[clave] = true;
+        htmlActivos += `<option value="${escaparHtml(nombre)}"></option>`;
+      });
+      datalistActivo.innerHTML = htmlActivos;
+    }
+  }
+
+  // true si el nombre corresponde a un colaborador del Registro de Personal con status CESADO.
+  // (Si hay dos personas con el mismo nombre y alguna está ACTIVA, no se bloquea.)
+  function colaboradorEstaCesado(nombreTexto) {
+    const texto = (nombreTexto || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!texto) return false;
+    const coincidencias = registros.filter(function (r) {
+      return `${r.nombres || ''} ${r.apellidos || ''}`.trim().toLowerCase().replace(/\s+/g, ' ') === texto;
+    });
+    if (coincidencias.length === 0) return false;
+    return coincidencias.every(function (r) { return statusRegistro(r) === 'CESADO'; });
+  }
+
+  function avisoColaboradorCesado(nombre) {
+    alert('No se puede registrar a ' + nombre + ' en la asistencia porque su status es CESADO en el Registro de Personal.\n\n' +
+      'Si es un error, cámbialo a ACTIVO en Registro de Personal → Base de datos de personal.');
   }
 
   function renderBloques() {
@@ -6850,7 +7180,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             </div>
           </div>
           <div class="bloque-agregar-persona">
-            <input type="text" class="input-personal-nombre" data-idx="${idx}" list="datalistPersonalGlobal" placeholder="Escribe o elige un nombre">
+            <input type="text" class="input-personal-nombre" data-idx="${idx}" list="datalistPersonalActivo" placeholder="Escribe o elige un nombre">
             <input type="text" class="input-personal-puesto" data-idx="${idx}" placeholder="Puesto">
             <button type="button" class="btn-secundario btn-agregar-persona" data-idx="${idx}">+ Agregar</button>
           </div>
@@ -6924,6 +7254,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
       const puesto = inputPuesto.value.trim();
 
+      if (colaboradorEstaCesado(nombreCompleto)) {
+        avisoColaboradorCesado(nombreCompleto);
+        inputNombre.value = '';
+        inputPuesto.value = '';
+        return;
+      }
+
       const yaExiste = bloquesRuta[idx].personas.some(function (p) { return p.nombre.toLowerCase() === nombreCompleto.toLowerCase(); });
       if (yaExiste) {
         alert('Esa persona ya está agregada en esta ruta.');
@@ -6947,6 +7284,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const fecha = asistFecha.value;
     if (!fecha) {
       alert('Selecciona la fecha antes de guardar la asistencia.');
+      return;
+    }
+
+    const cesadosEnCuadros = [];
+    bloquesRuta.forEach(function (b) {
+      b.personas.forEach(function (p) {
+        if (colaboradorEstaCesado(p.nombre) && cesadosEnCuadros.indexOf(p.nombre) === -1) cesadosEnCuadros.push(p.nombre);
+      });
+    });
+    if (cesadosEnCuadros.length) {
+      alert('No se guardó la asistencia porque estas personas tienen status CESADO en el Registro de Personal:\n\n• ' +
+        cesadosEnCuadros.join('\n• ') + '\n\nQuítalas de los cuadros de ruta (botón ✕) o cámbialas a ACTIVO en Registro de Personal.');
       return;
     }
 
@@ -6997,6 +7346,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if (!fecha) { alert('Selecciona la fecha de la inasistencia.'); return; }
     if (!nombre) { alert('Escribe o elige el nombre del colaborador.'); return; }
     if (!situacion) { alert('Selecciona si está Justificado, No justificado o es Tardanza.'); return; }
+
+    // Un colaborador CESADO no se puede registrar. Al editar un registro antiguo se permite
+    // guardarlo si se mantiene la misma persona (para poder corregir registros pasados).
+    const registroEditado = idxEdicion !== '' ? asistencias[parseInt(idxEdicion, 10)] : null;
+    const mismaPersona = registroEditado && (registroEditado.nombre || '').trim().toLowerCase() === nombre.toLowerCase();
+    if (!mismaPersona && colaboradorEstaCesado(nombre)) {
+      avisoColaboradorCesado(nombre);
+      return;
+    }
 
     if (idxEdicion !== '') {
       // Edición de un registro existente: se mantienen su tipo, placa y ruta originales, y se
@@ -14165,10 +14523,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           <td>${formatearFecha(d.fechaVencimiento)}</td>
           <td>${diasEntreFechasFlota(hoyIsoFlota(), d.fechaVencimiento)}</td>
           <td><span class="semaforo-flota ${sem.clase}">${sem.texto}</span></td>
-          <td class="tira-fotos-flota">${tiraMediaGuardadaFlota(d.fotos)}</td>
+          <td><div class="tira-fotos-flota">${tiraMediaDocumentoFlota(d)}</div></td>
           <td>
-            <button type="button" class="btn-secundario btn-editar-documento-flota" data-id="${d.id}">Editar</button>
-            <button type="button" class="btn-secundario btn-eliminar-documento-flota" data-id="${d.id}">Eliminar</button>
+            <div class="acciones-doc-flota">
+              <button type="button" class="btn-ver-documento-flota" data-id="${d.id}">👁 Ver</button>
+              <button type="button" class="btn-secundario btn-editar-documento-flota" data-id="${d.id}">Editar</button>
+              <button type="button" class="btn-secundario btn-eliminar-documento-flota" data-id="${d.id}">Eliminar</button>
+            </div>
           </td>
         </tr>
       `;
@@ -14209,6 +14570,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   });
 
   document.getElementById('cuerpoTablaDocumentosFlota').addEventListener('click', function (e) {
+    const btnVer = e.target.closest('.btn-ver-documento-flota, .miniatura-doc-flota');
+    if (btnVer) {
+      abrirVisorDocumentoFlota(btnVer.getAttribute('data-id'), parseInt(btnVer.getAttribute('data-i') || '0', 10));
+      return;
+    }
     const btnEditar = e.target.closest('.btn-editar-documento-flota');
     if (btnEditar) {
       const d = flotaDocumentos.find(function (x) { return x.id === btnEditar.getAttribute('data-id'); });
@@ -14234,6 +14600,250 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       poblarFiltrosDocumentosFlota();
       renderTablaDocumentosFlota();
     }
+  });
+
+  /* ---- Visor de documento: previsualización de fotos/videos y descarga ---- */
+  function listaMediaDocumentoFlota(d) {
+    if (!d) return [];
+    if (Array.isArray(d.fotos)) return d.fotos.filter(function (m) { return m && m.dato; });
+    if (typeof d.fotos === 'string' && d.fotos) return [{ tipo: 'imagen', dato: d.fotos }];
+    return [];
+  }
+
+  function tiraMediaDocumentoFlota(d) {
+    const lista = listaMediaDocumentoFlota(d);
+    if (lista.length === 0) return '—';
+    return lista.map(function (m, i) {
+      return m.tipo === 'video'
+        ? '<video src="' + m.dato + '" class="miniatura-foto-flota miniatura-doc-flota" data-id="' + escaparHtml(d.id) + '" data-i="' + i + '" muted title="Ver"></video>'
+        : '<img src="' + m.dato + '" class="miniatura-foto-flota miniatura-doc-flota" data-id="' + escaparHtml(d.id) + '" data-i="' + i + '" alt="Foto ' + (i + 1) + '" title="Ver">';
+    }).join('');
+  }
+
+  const visorDocFlota = { id: null, indice: 0 };
+
+  function documentoVisorActual() {
+    return flotaDocumentos.find(function (x) { return x.id === visorDocFlota.id; }) || null;
+  }
+
+  function abrirVisorDocumentoFlota(id, indice) {
+    const d = flotaDocumentos.find(function (x) { return x.id === id; });
+    if (!d) return;
+    visorDocFlota.id = id;
+    visorDocFlota.indice = Math.max(0, indice || 0);
+    const sem = semaforoVencimientoFlota(d.fechaVencimiento);
+    document.getElementById('visorDocTitulo').textContent = (d.tipo || 'Documento') + ' — ' + (d.placa || '');
+    document.getElementById('visorDocSemaforo').innerHTML = '<span class="semaforo-flota ' + sem.clase + '">' + escaparHtml(sem.texto) + '</span>';
+    function dato(etiqueta, valor, ancho) {
+      return '<div class="visor-doc-dato' + (ancho ? ' ancho' : '') + '"><span>' + etiqueta + '</span><b>' + (valor ? escaparHtml(valor) : '—') + '</b></div>';
+    }
+    document.getElementById('visorDocDetalles').innerHTML =
+      dato('Placa', d.placa) + dato('Tipo de documento', d.tipo) + dato('N° de documento', d.numero) +
+      dato('Fecha de emisión', d.fechaEmision ? formatearFecha(d.fechaEmision) : '') +
+      dato('Fecha de vencimiento', formatearFecha(d.fechaVencimiento)) +
+      (d.observaciones ? dato('Observaciones', d.observaciones, true) : '');
+    document.getElementById('visorDocEstado').textContent = '';
+    renderVisorDocumentoFlota();
+    document.getElementById('modalVerDocFlota').style.display = 'flex';
+  }
+
+  function renderVisorDocumentoFlota() {
+    const d = documentoVisorActual();
+    const lista = listaMediaDocumentoFlota(d);
+    const cont = document.getElementById('visorDocMedia');
+    const total = lista.length;
+    if (visorDocFlota.indice >= total) visorDocFlota.indice = Math.max(0, total - 1);
+    const i = visorDocFlota.indice;
+    if (total === 0) {
+      cont.innerHTML = '<p class="vacio">Este documento no tiene fotos ni videos. Puedes agregarlos con el botón "Editar".</p>';
+    } else {
+      const m = lista[i];
+      cont.innerHTML = m.tipo === 'video'
+        ? '<video src="' + m.dato + '" controls></video>'
+        : '<img src="' + m.dato + '" alt="Foto ' + (i + 1) + ' del documento">';
+    }
+    document.getElementById('visorDocContador').textContent = total ? ((lista[i].tipo === 'video' ? 'Video ' : 'Foto ') + (i + 1) + ' de ' + total) : '';
+    document.getElementById('visorDocMiniaturas').innerHTML = total > 1 ? lista.map(function (m, k) {
+      const cls = 'miniatura-foto-flota' + (k === i ? ' activa' : '');
+      return m.tipo === 'video'
+        ? '<video src="' + m.dato + '" class="' + cls + '" data-i="' + k + '" muted></video>'
+        : '<img src="' + m.dato + '" class="' + cls + '" data-i="' + k + '" alt="Miniatura ' + (k + 1) + '">';
+    }).join('') : '';
+    document.getElementById('btnVisorDocAnterior').disabled = i <= 0;
+    document.getElementById('btnVisorDocSiguiente').disabled = i >= total - 1;
+    document.getElementById('btnVisorDocAnterior').style.visibility = total > 1 ? '' : 'hidden';
+    document.getElementById('btnVisorDocSiguiente').style.visibility = total > 1 ? '' : 'hidden';
+    document.getElementById('btnVisorDocDescargarUna').disabled = total === 0;
+    document.getElementById('btnVisorDocDescargarTodas').disabled = total === 0;
+    document.getElementById('btnVisorDocDescargarTodas').textContent = total > 1 ? '⬇️ Descargar todas (' + total + ')' : '⬇️ Descargar todas';
+  }
+
+  function cerrarVisorDocumentoFlota() {
+    document.getElementById('modalVerDocFlota').style.display = 'none';
+    document.getElementById('visorDocMedia').innerHTML = ''; // corta el video si estaba reproduciéndose
+    document.getElementById('visorDocMiniaturas').innerHTML = '';
+    visorDocFlota.id = null;
+  }
+
+  function moverVisorDocumentoFlota(paso) {
+    const total = listaMediaDocumentoFlota(documentoVisorActual()).length;
+    const nuevo = visorDocFlota.indice + paso;
+    if (nuevo < 0 || nuevo >= total) return;
+    visorDocFlota.indice = nuevo;
+    renderVisorDocumentoFlota();
+  }
+
+  // Convierte la foto/video guardado (normalmente "data:image/jpeg;base64,...") en un archivo.
+  function datoMediaABlobFlota(dato) {
+    if (typeof dato === 'string' && dato.indexOf('data:') === 0) {
+      const coma = dato.indexOf(',');
+      const cabecera = dato.slice(5, coma);
+      const tipo = cabecera.split(';')[0] || 'application/octet-stream';
+      const cuerpo = dato.slice(coma + 1);
+      const binario = cabecera.indexOf(';base64') !== -1 ? atob(cuerpo) : decodeURIComponent(cuerpo);
+      const bytes = new Uint8Array(binario.length);
+      for (let k = 0; k < binario.length; k++) bytes[k] = binario.charCodeAt(k);
+      return Promise.resolve(new Blob([bytes], { type: tipo }));
+    }
+    return fetch(dato).then(function (r) { return r.blob(); });
+  }
+
+  function extensionMediaFlota(blob, m) {
+    const mapa = { 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+      'image/heic': 'heic', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/3gpp': '3gp' };
+    if (mapa[blob.type]) return mapa[blob.type];
+    const sub = (blob.type || '').split('/')[1];
+    if (sub) return sub.replace(/[^a-z0-9]/gi, '').slice(0, 5) || 'bin';
+    return m && m.tipo === 'video' ? 'mp4' : 'jpg';
+  }
+
+  function nombreBaseDocumentoFlota(d) {
+    const limpiar = function (t) {
+      return (t || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9-]+/g, '_').replace(/^_+|_+$/g, '');
+    };
+    return [limpiar(d.placa) || 'SINPLACA', limpiar(d.tipo) || 'Documento', d.fechaVencimiento ? 'vence_' + d.fechaVencimiento : ''].filter(Boolean).join('_');
+  }
+
+  // Arma un .zip sencillo (sin compresión: las fotos JPG y los videos ya vienen comprimidos) a
+  // partir de [{ nombre, bytes: Uint8Array }]. No necesita librerías externas.
+  const TABLA_CRC32_FLOTA = (function () {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32Flota(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = TABLA_CRC32_FLOTA[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function crearZipFlota(archivos) {
+    const partes = [];
+    const central = [];
+    let desplazamiento = 0;
+    const ahora = new Date();
+    const horaDos = (ahora.getHours() << 11) | (ahora.getMinutes() << 5) | Math.floor(ahora.getSeconds() / 2);
+    const fechaDos = ((ahora.getFullYear() - 1980) << 9) | ((ahora.getMonth() + 1) << 5) | ahora.getDate();
+    archivos.forEach(function (a) {
+      const nombre = new TextEncoder().encode(a.nombre);
+      const crc = crc32Flota(a.bytes);
+      const tam = a.bytes.length;
+      const local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint16(6, 0x0800, true);
+      local.setUint16(8, 0, true); local.setUint16(10, horaDos, true); local.setUint16(12, fechaDos, true);
+      local.setUint32(14, crc, true); local.setUint32(18, tam, true); local.setUint32(22, tam, true);
+      local.setUint16(26, nombre.length, true); local.setUint16(28, 0, true);
+      partes.push(new Uint8Array(local.buffer), nombre, a.bytes);
+      const cen = new DataView(new ArrayBuffer(46));
+      cen.setUint32(0, 0x02014b50, true); cen.setUint16(4, 20, true); cen.setUint16(6, 20, true); cen.setUint16(8, 0x0800, true);
+      cen.setUint16(10, 0, true); cen.setUint16(12, horaDos, true); cen.setUint16(14, fechaDos, true);
+      cen.setUint32(16, crc, true); cen.setUint32(20, tam, true); cen.setUint32(24, tam, true);
+      cen.setUint16(28, nombre.length, true); cen.setUint32(42, desplazamiento, true);
+      central.push(new Uint8Array(cen.buffer), nombre);
+      desplazamiento += 30 + nombre.length + tam;
+    });
+    const tamCentral = central.reduce(function (s, x) { return s + x.length; }, 0);
+    const fin = new DataView(new ArrayBuffer(22));
+    fin.setUint32(0, 0x06054b50, true); fin.setUint16(8, archivos.length, true); fin.setUint16(10, archivos.length, true);
+    fin.setUint32(12, tamCentral, true); fin.setUint32(16, desplazamiento, true);
+    return new Blob(partes.concat(central, [new Uint8Array(fin.buffer)]), { type: 'application/zip' });
+  }
+
+  function descargarBlobFlota(blob, nombre) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombre;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+
+  function descargarMediaActualDocumentoFlota() {
+    const d = documentoVisorActual();
+    const lista = listaMediaDocumentoFlota(d);
+    const m = lista[visorDocFlota.indice];
+    if (!m) return;
+    const estado = document.getElementById('visorDocEstado');
+    datoMediaABlobFlota(m.dato).then(function (blob) {
+      const nombre = nombreBaseDocumentoFlota(d) + '_' + (visorDocFlota.indice + 1) + '.' + extensionMediaFlota(blob, m);
+      descargarBlobFlota(blob, nombre);
+      estado.textContent = 'Descargado: ' + nombre;
+    }).catch(function (err) {
+      console.error('No se pudo descargar el archivo del documento:', err);
+      estado.textContent = 'No se pudo descargar este archivo.';
+    });
+  }
+
+  function descargarTodasMediaDocumentoFlota() {
+    const d = documentoVisorActual();
+    const lista = listaMediaDocumentoFlota(d);
+    if (lista.length === 0) return;
+    if (lista.length === 1) { visorDocFlota.indice = 0; renderVisorDocumentoFlota(); descargarMediaActualDocumentoFlota(); return; }
+    const estado = document.getElementById('visorDocEstado');
+    const btn = document.getElementById('btnVisorDocDescargarTodas');
+    const base = nombreBaseDocumentoFlota(d);
+    btn.disabled = true;
+    estado.textContent = 'Preparando ' + lista.length + ' archivos…';
+    Promise.all(lista.map(function (m) { return datoMediaABlobFlota(m.dato); })).then(function (blobs) {
+      const nombres = blobs.map(function (b, k) { return base + '_' + (k + 1) + '.' + extensionMediaFlota(b, lista[k]); });
+      // Todas juntas en un solo .zip
+      return Promise.all(blobs.map(function (b) { return b.arrayBuffer(); })).then(function (buffers) {
+        const zipBlob = crearZipFlota(buffers.map(function (buf, k) { return { nombre: nombres[k], bytes: new Uint8Array(buf) }; }));
+        descargarBlobFlota(zipBlob, base + '.zip');
+        estado.textContent = 'Descargado: ' + base + '.zip (' + lista.length + ' archivos)';
+      });
+    }).catch(function (err) {
+      console.error('No se pudieron descargar los archivos del documento:', err);
+      estado.textContent = 'No se pudieron descargar los archivos.';
+    }).then(function () {
+      btn.disabled = false;
+    });
+  }
+
+  document.getElementById('btnCerrarVisorDoc').addEventListener('click', cerrarVisorDocumentoFlota);
+  document.getElementById('modalVerDocFlota').addEventListener('click', function (e) {
+    if (e.target.id === 'modalVerDocFlota') cerrarVisorDocumentoFlota();
+  });
+  document.getElementById('btnVisorDocAnterior').addEventListener('click', function () { moverVisorDocumentoFlota(-1); });
+  document.getElementById('btnVisorDocSiguiente').addEventListener('click', function () { moverVisorDocumentoFlota(1); });
+  document.getElementById('visorDocMiniaturas').addEventListener('click', function (e) {
+    const mini = e.target.closest('[data-i]');
+    if (!mini) return;
+    visorDocFlota.indice = parseInt(mini.getAttribute('data-i'), 10) || 0;
+    renderVisorDocumentoFlota();
+  });
+  document.getElementById('btnVisorDocDescargarUna').addEventListener('click', descargarMediaActualDocumentoFlota);
+  document.getElementById('btnVisorDocDescargarTodas').addEventListener('click', descargarTodasMediaDocumentoFlota);
+  document.addEventListener('keydown', function (e) {
+    if (document.getElementById('modalVerDocFlota').style.display !== 'flex') return;
+    if (e.key === 'Escape') cerrarVisorDocumentoFlota();
+    else if (e.key === 'ArrowLeft') moverVisorDocumentoFlota(-1);
+    else if (e.key === 'ArrowRight') moverVisorDocumentoFlota(1);
   });
 
   document.getElementById('btnCancelarDocumentoFlota').addEventListener('click', function () {
@@ -14948,6 +15558,720 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     function (v) { ITEMS_EPP = (v && v.length) ? v : ITEMS_EPP_POR_DEFECTO.slice(); },
     function () { renderListaItemsEpp(); refrescarTodoLoQueUsaItemsEpp(); }
   );
+
+
+  /* ===================================================================
+     RESPALDOS (solo administradores)
+     1) Respaldo automático en la nube: una vez al día (la primera vez que
+        alguien abre SEGSOL ese día, cuando ya llegaron todos los datos de
+        la nube), se guarda una copia completa de todos los módulos en
+        Firestore. Se conservan las últimas N copias (7/15/30, lo elige el
+        administrador) sin pasar de un tope de espacio, para no llenar la
+        cuota gratuita de Firebase y no afectar la sincronización normal.
+     2) "Respaldar todo": descarga un archivo .json con todos los módulos.
+        "Restaurar desde archivo": vuelve a cargar ese archivo.
+     Ver, descargar, restaurar y configurar respaldos es solo para
+     administradores (el panel está en Administración y cada acción vuelve
+     a verificar que el usuario activo sea administrador).
+     Los respaldos se guardan dentro de la misma colección "segsol" con
+     nombres que empiezan con "respaldo_", así no hace falta cambiar las
+     reglas de seguridad de Firebase:
+       segsol/respaldo__indice          -> lista de copias + configuración
+       segsol/respaldo_<id>_frag_<n>    -> el contenido de cada copia, en trozos
+  =================================================================== */
+
+  // Estado del módulo de respaldos. Se crea a demanda (y no con const/let) porque algunas
+  // funciones de aquí se llaman desde mostrarVista() antes de que este bloque se ejecute.
+  function estadoRespaldos() {
+    if (!estadoRespaldos.s) {
+      estadoRespaldos.s = {
+        indice: null,              // contenido de segsol/respaldo__indice (lo último recibido)
+        escuchandoIndice: false,
+        docsRecibidos: {},         // nombreDoc -> true/false (primer dato recibido de la nube)
+        programado: false,
+        ocupado: false             // hay un respaldo o restauración en curso en esta pestaña
+      };
+    }
+    return estadoRespaldos.s;
+  }
+
+  var RESPALDO_DOC_INDICE = 'respaldo__indice';
+  var RESPALDO_TROZO_CARACTERES = 300000;           // por documento (holgado bajo el límite de 1 MB de Firestore)
+  var RESPALDO_TROZOS_POR_LOTE = 8;                 // documentos por escritura en lote (bajo el límite de 10 MB)
+  var RESPALDO_PRESUPUESTO_BYTES = 500 * 1024 * 1024; // máximo total para respaldos en la nube (cuota gratuita: 1 GB en total)
+  var RESPALDO_MAX_COPIAS_POR_DEFECTO = 30;
+  var RESPALDO_DIAS_AVISO_DESCARGA = 7;
+  var CLAVE_ULTIMA_DESCARGA_RESPALDO = 'segsol_ultima_descarga_respaldo';
+
+  var NOMBRES_MODULOS_RESPALDO = {
+    usuarios: 'Usuarios y contraseñas',
+    registros: 'Registro de Personal',
+    postulantes: 'Registro de Postulantes',
+    asistencias: 'Asistencia',
+    caja: 'Caja (movimientos)',
+    mapa: 'Mapa de clientes',
+    avanceRD: 'Avance de Rutas (RD)',
+    avanceHR: 'Avance de Rutas (Hoja de Ruta)',
+    diasCerradosAvance: 'Avance de Rutas (días cerrados)',
+    liquidaciones: 'Liquidaciones',
+    flotaCarretas: 'Flota – Carretas',
+    flotaCamiones: 'Flota – Camiones',
+    flotaControlDiario: 'Flota – Control diario',
+    flotaFallas: 'Flota – Fallas',
+    flotaReparaciones: 'Flota – Reparaciones',
+    flotaCombustible: 'Flota – Combustible',
+    flotaDocumentos: 'Flota – Documentos',
+    descuentosProductos: 'Descuentos – Catálogo',
+    descuentos: 'Descuentos del personal',
+    epp: 'EPP – Entregas',
+    eppStock: 'EPP – Ingresos de stock',
+    eppMinimos: 'EPP – Stock mínimo',
+    eppItems: 'EPP – Ítems'
+  };
+
+  function esAdministradorActivo() {
+    return !!(usuarioActivo && usuarioActivo.esAdmin);
+  }
+
+  function nubeListaParaRespaldos() {
+    return !!(nubeDisponible && dbNube && nubeAutenticada);
+  }
+
+  function todosLosRegistrosSincronizados() {
+    return registrosSincronizacion.map(function (r) { return { r: r, fragmentada: false }; })
+      .concat(registrosSincronizacionFragmentada.map(function (r) { return { r: r, fragmentada: true }; }));
+  }
+
+  function refDocRespaldo(id) {
+    return dbNube.collection('segsol').doc(id);
+  }
+
+  /* ---- Utilidades de formato ---- */
+  function formatearBytesRespaldo(bytes) {
+    if (!bytes && bytes !== 0) return '—';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+  function dosDigitos(n) { return (n < 10 ? '0' : '') + n; }
+  function fechaLocalIso(ms) {
+    const d = new Date(ms);
+    return d.getFullYear() + '-' + dosDigitos(d.getMonth() + 1) + '-' + dosDigitos(d.getDate());
+  }
+  function formatearFechaHoraRespaldo(ms) {
+    if (!ms) return '—';
+    const d = new Date(ms);
+    return dosDigitos(d.getDate()) + '/' + dosDigitos(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' +
+      dosDigitos(d.getHours()) + ':' + dosDigitos(d.getMinutes());
+  }
+  function diasDesde(ms) {
+    return Math.floor((Date.now() - ms) / (24 * 60 * 60 * 1000));
+  }
+  function contarElementosRespaldo(v) {
+    if (Array.isArray(v)) return v.length;
+    if (v && typeof v === 'object') return Object.keys(v).length;
+    return v == null ? 0 : 1;
+  }
+  function tamanoTextoBytes(texto) {
+    try { return new Blob([texto]).size; } catch (e) { return texto.length; }
+  }
+
+  /* ---- Capturar y aplicar datos ---- */
+  function capturarDatosParaRespaldo() {
+    const datos = {};
+    const resumen = {};
+    todosLosRegistrosSincronizados().forEach(function (x) {
+      const v = x.r.obtenerValor();
+      datos[x.r.nombreDoc] = v;
+      resumen[x.r.nombreDoc] = contarElementosRespaldo(v);
+    });
+    return { datos: datos, resumen: resumen };
+  }
+
+  // Reemplaza los datos actuales con los del respaldo: en esta pestaña, en el almacenamiento
+  // local y en la nube (así todas las demás computadoras lo reciben en vivo).
+  function aplicarDatosDeRespaldo(datos, incluirUsuarios) {
+    const errores = [];
+    todosLosRegistrosSincronizados().forEach(function (x) {
+      const r = x.r;
+      if (!Object.prototype.hasOwnProperty.call(datos, r.nombreDoc)) return;
+      if (r.nombreDoc === 'usuarios' && !incluirUsuarios) return;
+      try {
+        r.fijarValor(datos[r.nombreDoc]);
+        const valor = r.obtenerValor();
+        if (r.claveLocalStorage) {
+          try { localStorage.setItem(r.claveLocalStorage, JSON.stringify(valor)); } catch (e) { /* sin almacenamiento local: queda en memoria y en la nube */ }
+        }
+        if (x.fragmentada) guardarEnNubeFragmentada(r.nombreDoc, valor);
+        else guardarEnNube(r.nombreDoc, valor);
+        if (typeof r.alRecibirCambio === 'function') r.alRecibirCambio();
+      } catch (e) {
+        console.error('No se pudo restaurar "' + r.nombreDoc + '":', e);
+        errores.push(NOMBRES_MODULOS_RESPALDO[r.nombreDoc] || r.nombreDoc);
+      }
+    });
+    try { renderResumenInicio(); } catch (e) { /* no-op */ }
+    return errores;
+  }
+
+  /* ---- Espera inicial: no respaldar hasta tener todos los datos de la nube ---- */
+  function marcarDocRecibidoNube(nombreDoc, ok) {
+    const est = estadoRespaldos();
+    if (Object.prototype.hasOwnProperty.call(est.docsRecibidos, nombreDoc)) return;
+    est.docsRecibidos[nombreDoc] = !!ok;
+    programarRespaldoAutomatico();
+  }
+
+  function datosNubeCompletos() {
+    const est = estadoRespaldos();
+    return todosLosRegistrosSincronizados().every(function (x) {
+      return est.docsRecibidos[x.r.nombreDoc] === true;
+    });
+  }
+
+  /* ---- Índice de respaldos (lista + configuración), escuchado en vivo ---- */
+  function escucharIndiceRespaldos() {
+    const est = estadoRespaldos();
+    if (est.escuchandoIndice || !nubeListaParaRespaldos()) return;
+    est.escuchandoIndice = true;
+    refDocRespaldo(RESPALDO_DOC_INDICE).onSnapshot(function (snap) {
+      est.indice = snap.exists ? (snap.data() || {}) : {};
+      renderPanelRespaldos();
+      actualizarAvisosRespaldo();
+      programarRespaldoAutomatico();
+    }, function (err) {
+      console.error('No se pudo leer el índice de respaldos:', err);
+      est.indice = null;
+      est.escuchandoIndice = false;
+      renderPanelRespaldos();
+    });
+  }
+
+  function listaRespaldosIndice(indice) {
+    const lista = (indice && Array.isArray(indice.lista)) ? indice.lista.slice() : [];
+    lista.sort(function (a, b) { return (b.fecha || 0) - (a.fecha || 0); });
+    return lista;
+  }
+
+  function maxCopiasRespaldo(indice) {
+    const n = indice && parseInt(indice.maxCopias, 10);
+    return (n && n > 0) ? n : RESPALDO_MAX_COPIAS_POR_DEFECTO;
+  }
+
+  /* ---- Crear un respaldo en la nube ---- */
+  function nuevoIdRespaldo(ms) {
+    const d = new Date(ms);
+    return d.getFullYear() + dosDigitos(d.getMonth() + 1) + dosDigitos(d.getDate()) + '-' +
+      dosDigitos(d.getHours()) + dosDigitos(d.getMinutes()) + dosDigitos(d.getSeconds()) + '-' +
+      Math.random().toString(36).slice(2, 7);
+  }
+
+  function borrarTrozosRespaldo(metas) {
+    const ids = [];
+    metas.forEach(function (m) {
+      for (let i = 0; i < (m.numFragmentos || 0); i++) ids.push('respaldo_' + m.id + '_frag_' + i);
+    });
+    let cadena = Promise.resolve();
+    for (let i = 0; i < ids.length; i += 400) {
+      const grupo = ids.slice(i, i + 400);
+      cadena = cadena.then(function () {
+        const lote = dbNube.batch();
+        grupo.forEach(function (id) { lote.delete(refDocRespaldo(id)); });
+        return lote.commit();
+      });
+    }
+    return cadena;
+  }
+
+  // tipo: 'auto' | 'manual' | 'previo' (copia de seguridad hecha justo antes de restaurar)
+  function crearRespaldoEnNube(tipo) {
+    if (!nubeListaParaRespaldos()) return Promise.reject(new Error('No hay conexión con la nube.'));
+    const ahora = Date.now();
+    const captura = capturarDatosParaRespaldo();
+    const texto = JSON.stringify(captura.datos);
+    const bytes = tamanoTextoBytes(texto);
+    if (bytes > RESPALDO_PRESUPUESTO_BYTES) {
+      return Promise.reject(new Error('La información pesa ' + formatearBytesRespaldo(bytes) + ', más de lo que cabe en la nube para respaldos. Usa "Respaldar todo (descargar archivo)".'));
+    }
+    const id = nuevoIdRespaldo(ahora);
+    const trozos = [];
+    for (let i = 0; i < texto.length; i += RESPALDO_TROZO_CARACTERES) trozos.push(texto.slice(i, i + RESPALDO_TROZO_CARACTERES));
+    if (trozos.length === 0) trozos.push('');
+
+    // 1) Se suben los trozos. Si algo falla a mitad de camino, la copia nunca aparece en la
+    //    lista (el índice se actualiza recién al final) y se borran los trozos subidos.
+    let cadena = Promise.resolve();
+    for (let i = 0; i < trozos.length; i += RESPALDO_TROZOS_POR_LOTE) {
+      const desde = i;
+      cadena = cadena.then(function () {
+        const lote = dbNube.batch();
+        trozos.slice(desde, desde + RESPALDO_TROZOS_POR_LOTE).forEach(function (t, j) {
+          lote.set(refDocRespaldo('respaldo_' + id + '_frag_' + (desde + j)), { respaldo: id, n: desde + j, texto: t });
+        });
+        return lote.commit();
+      });
+    }
+
+    const meta = {
+      id: id,
+      fecha: ahora,
+      tipo: tipo,
+      usuario: usuarioActivo ? usuarioActivo.usuario : '',
+      bytes: bytes,
+      numFragmentos: trozos.length,
+      resumen: captura.resumen
+    };
+
+    let sobrantes = [];
+    return cadena.then(function () {
+      // 2) Se agrega a la lista y se quitan las copias más antiguas que sobren
+      //    (por cantidad o por espacio total). La más reciente siempre se conserva.
+      return dbNube.runTransaction(function (t) {
+        const ref = refDocRespaldo(RESPALDO_DOC_INDICE);
+        return t.get(ref).then(function (snap) {
+          const indice = snap.exists ? (snap.data() || {}) : {};
+          const lista = listaRespaldosIndice(indice);
+          lista.unshift(meta);
+          const maxCopias = maxCopiasRespaldo(indice);
+          const conservar = [];
+          let total = 0;
+          sobrantes = [];
+          lista.forEach(function (m) {
+            if (conservar.length === 0 || (conservar.length < maxCopias && total + (m.bytes || 0) <= RESPALDO_PRESUPUESTO_BYTES)) {
+              conservar.push(m);
+              total += (m.bytes || 0);
+            } else {
+              sobrantes.push(m);
+            }
+          });
+          const cambios = { lista: conservar, maxCopias: maxCopias };
+          if (tipo === 'auto') { cambios.ultimoAuto = ahora; cambios.enCurso = null; }
+          t.set(ref, cambios, { merge: true });
+        });
+      });
+    }).then(function () {
+      return borrarTrozosRespaldo(sobrantes).catch(function (e) { console.error('No se pudieron borrar copias antiguas:', e); });
+    }).then(function () {
+      return meta;
+    }).catch(function (err) {
+      borrarTrozosRespaldo([meta]).catch(function () { /* no-op */ });
+      throw err;
+    });
+  }
+
+  /* ---- Respaldo automático diario ---- */
+  function programarRespaldoAutomatico() {
+    if (!respaldosListos) return;
+    const est = estadoRespaldos();
+    if (est.programado || est.ocupado) return;
+    if (!usuarioActivo || !nubeListaParaRespaldos() || !datosNubeCompletos()) return;
+    if (!est.indice) { escucharIndiceRespaldos(); return; }
+    const hoy = fechaLocalIso(Date.now());
+    if (est.indice.ultimoAuto && fechaLocalIso(est.indice.ultimoAuto) === hoy) return;
+    est.programado = true;
+    // Se espera un momento para no hacer más lenta la apertura de la app.
+    setTimeout(function () {
+      est.programado = false;
+      ejecutarRespaldoAutomatico();
+    }, 20000);
+  }
+
+  function ejecutarRespaldoAutomatico() {
+    const est = estadoRespaldos();
+    if (est.ocupado || !usuarioActivo || !nubeListaParaRespaldos() || !datosNubeCompletos()) return;
+    const ahora = Date.now();
+    const hoy = fechaLocalIso(ahora);
+    const quien = usuarioActivo.usuario;
+    // Se "reserva" el respaldo del día para que, si varias computadoras abren SEGSOL a la vez,
+    // solo una lo haga.
+    dbNube.runTransaction(function (t) {
+      const ref = refDocRespaldo(RESPALDO_DOC_INDICE);
+      return t.get(ref).then(function (snap) {
+        const indice = snap.exists ? (snap.data() || {}) : {};
+        if (indice.ultimoAuto && fechaLocalIso(indice.ultimoAuto) === hoy) return false;
+        if (indice.enCurso && indice.enCurso.desde && (ahora - indice.enCurso.desde) < 15 * 60 * 1000) return false;
+        t.set(ref, { enCurso: { usuario: quien, desde: ahora } }, { merge: true });
+        return true;
+      });
+    }).then(function (reservado) {
+      if (!reservado) return;
+      est.ocupado = true;
+      return crearRespaldoEnNube('auto').then(function (meta) {
+        console.log('Respaldo automático guardado en la nube:', meta.id, formatearBytesRespaldo(meta.bytes));
+      }).catch(function (err) {
+        console.error('No se pudo hacer el respaldo automático:', err);
+        refDocRespaldo(RESPALDO_DOC_INDICE).set({ enCurso: null, ultimoErrorAuto: { fecha: Date.now(), mensaje: String(err && err.message || err) } }, { merge: true }).catch(function () { /* no-op */ });
+      }).then(function () {
+        est.ocupado = false;
+        renderPanelRespaldos();
+      });
+    }).catch(function (err) {
+      console.error('No se pudo iniciar el respaldo automático:', err);
+    });
+  }
+
+  /* ---- Leer un respaldo de la nube ---- */
+  function leerRespaldoDeNube(meta) {
+    const promesas = [];
+    for (let i = 0; i < (meta.numFragmentos || 0); i++) promesas.push(refDocRespaldo('respaldo_' + meta.id + '_frag_' + i).get());
+    return Promise.all(promesas).then(function (snaps) {
+      const partes = snaps.map(function (s, i) {
+        if (!s.exists) throw new Error('A esta copia le falta una parte (' + (i + 1) + ' de ' + snaps.length + ').');
+        return s.data().texto || '';
+      });
+      return JSON.parse(partes.join(''));
+    });
+  }
+
+  /* ---- Archivo: descargar y cargar ---- */
+  function nombreArchivoRespaldo(ms) {
+    const d = new Date(ms);
+    return 'segsol_respaldo_' + fechaLocalIso(ms) + '_' + dosDigitos(d.getHours()) + dosDigitos(d.getMinutes()) + '.json';
+  }
+
+  function armarArchivoRespaldo(datos, resumen, ms, origen) {
+    return {
+      aplicacion: 'SEGSOL',
+      formato: 1,
+      tipo: 'respaldo_completo',
+      origen: origen || 'actual',
+      fecha: new Date(ms).toISOString(),
+      fechaMs: ms,
+      usuario: usuarioActivo ? usuarioActivo.usuario : '',
+      resumen: resumen,
+      datos: datos
+    };
+  }
+
+  function registrarDescargaRespaldo(ms) {
+    const registro = { fecha: ms, usuario: usuarioActivo ? usuarioActivo.usuario : '' };
+    try { localStorage.setItem(CLAVE_ULTIMA_DESCARGA_RESPALDO, JSON.stringify(registro)); } catch (e) { /* no-op */ }
+    if (nubeListaParaRespaldos()) {
+      refDocRespaldo(RESPALDO_DOC_INDICE).set({ ultimaDescarga: registro }, { merge: true }).catch(function (e) {
+        console.error('No se pudo registrar la descarga del respaldo:', e);
+      });
+    }
+    const est = estadoRespaldos();
+    if (est.indice) est.indice.ultimaDescarga = registro;
+    renderPanelRespaldos();
+    actualizarAvisosRespaldo();
+  }
+
+  function descargarRespaldoCompleto() {
+    if (!esAdministradorActivo()) { alert('Solo un administrador puede descargar respaldos.'); return; }
+    const ahora = Date.now();
+    const captura = capturarDatosParaRespaldo();
+    const archivo = armarArchivoRespaldo(captura.datos, captura.resumen, ahora, 'actual');
+    descargarArchivo(nombreArchivoRespaldo(ahora), JSON.stringify(archivo), 'application/json');
+    registrarDescargaRespaldo(ahora);
+    mostrarEstadoRespaldo('Archivo descargado: ' + nombreArchivoRespaldo(ahora) + '. Guárdalo en un lugar seguro (por ejemplo Google Drive).', 'ok');
+  }
+
+  function ultimaDescargaRespaldo() {
+    const est = estadoRespaldos();
+    let local = null;
+    try { local = JSON.parse(localStorage.getItem(CLAVE_ULTIMA_DESCARGA_RESPALDO) || 'null'); } catch (e) { local = null; }
+    const nube = est.indice && est.indice.ultimaDescarga;
+    if (nube && local) return (nube.fecha || 0) >= (local.fecha || 0) ? nube : local;
+    return nube || local || null;
+  }
+
+  /* ---- Restaurar (desde la nube o desde un archivo) ---- */
+  var respaldoPendienteRestaurar = null; // { datos, descripcion }
+
+  function abrirModalRestaurar(datos, descripcion) {
+    respaldoPendienteRestaurar = { datos: datos, descripcion: descripcion };
+    document.getElementById('modalRestaurarTexto').innerHTML = descripcion;
+    const cuerpo = document.getElementById('cuerpoTablaVistaPreviaRespaldo');
+    const actual = capturarDatosParaRespaldo().resumen;
+    let filas = '';
+    todosLosRegistrosSincronizados().forEach(function (x) {
+      const doc = x.r.nombreDoc;
+      const enRespaldo = Object.prototype.hasOwnProperty.call(datos, doc) ? contarElementosRespaldo(datos[doc]) : null;
+      filas += '<tr><td>' + escaparHtml(NOMBRES_MODULOS_RESPALDO[doc] || doc) + '</td><td>' +
+        (enRespaldo === null ? '<span style="color:var(--gris-suave)">no incluido (no se cambia)</span>' : enRespaldo) +
+        '</td><td>' + (actual[doc] || 0) + '</td></tr>';
+    });
+    cuerpo.innerHTML = filas;
+    const tieneUsuarios = Array.isArray(datos.usuarios) && datos.usuarios.some(function (u) { return u && u.esAdmin; });
+    const chk = document.getElementById('chkRestaurarUsuarios');
+    chk.checked = false;
+    chk.disabled = !tieneUsuarios;
+    chk.parentElement.style.opacity = tieneUsuarios ? '' : '.5';
+    document.getElementById('inputConfirmarRestaurar').value = '';
+    document.getElementById('btnConfirmarRestaurar').disabled = true;
+    document.getElementById('modalRestaurarRespaldo').style.display = 'flex';
+    setTimeout(function () { document.getElementById('inputConfirmarRestaurar').focus(); }, 50);
+  }
+
+  function cerrarModalRestaurar() {
+    respaldoPendienteRestaurar = null;
+    document.getElementById('modalRestaurarRespaldo').style.display = 'none';
+  }
+
+  function confirmarRestauracion() {
+    if (!esAdministradorActivo()) { alert('Solo un administrador puede restaurar respaldos.'); cerrarModalRestaurar(); return; }
+    if (!respaldoPendienteRestaurar) return;
+    if (document.getElementById('inputConfirmarRestaurar').value.trim().toUpperCase() !== 'RESTAURAR') return;
+    const pendiente = respaldoPendienteRestaurar;
+    const incluirUsuarios = document.getElementById('chkRestaurarUsuarios').checked;
+    cerrarModalRestaurar();
+    const est = estadoRespaldos();
+    est.ocupado = true;
+    bloquearBotonesRespaldo(true);
+    mostrarEstadoRespaldo('Guardando una copia de cómo está todo ahora, antes de restaurar…');
+
+    let copiaPrevia;
+    if (nubeListaParaRespaldos()) {
+      copiaPrevia = crearRespaldoEnNube('previo').then(function () { return 'nube'; });
+    } else {
+      copiaPrevia = Promise.reject(new Error('sin nube'));
+    }
+    copiaPrevia.catch(function (err) {
+      // Sin nube (o si falló), la copia de seguridad se descarga como archivo.
+      console.error('No se pudo guardar la copia previa en la nube:', err);
+      const ahora = Date.now();
+      const captura = capturarDatosParaRespaldo();
+      descargarArchivo('segsol_antes_de_restaurar_' + fechaLocalIso(ahora) + '_' + dosDigitos(new Date(ahora).getHours()) + dosDigitos(new Date(ahora).getMinutes()) + '.json',
+        JSON.stringify(armarArchivoRespaldo(captura.datos, captura.resumen, ahora, 'antes_de_restaurar')), 'application/json');
+      return 'archivo';
+    }).then(function (dondeCopia) {
+      mostrarEstadoRespaldo('Restaurando la información…');
+      const errores = aplicarDatosDeRespaldo(pendiente.datos, incluirUsuarios);
+      if (incluirUsuarios && usuarioActivo && !buscarUsuario(usuarioActivo.usuario)) {
+        alert('Tu usuario no existe en el respaldo restaurado. Se cerrará la sesión; entra con un usuario administrador del respaldo.');
+        try { localStorage.removeItem(CLAVE_SESION); } catch (e) { /* no-op */ }
+        location.reload();
+        return;
+      }
+      let msj = 'Restauración completa. La copia de cómo estaba todo antes quedó ' +
+        (dondeCopia === 'nube' ? 'en la lista de copias de la nube (tipo "Antes de restaurar").' : 'descargada como archivo en tu computadora.');
+      if (errores.length) msj += ' No se pudo restaurar: ' + errores.join(', ') + '.';
+      mostrarEstadoRespaldo(msj, errores.length ? 'error' : 'ok');
+      alert(msj);
+    }).catch(function (err) {
+      console.error('Error al restaurar:', err);
+      mostrarEstadoRespaldo('No se pudo restaurar: ' + (err && err.message || err), 'error');
+    }).then(function () {
+      est.ocupado = false;
+      bloquearBotonesRespaldo(false);
+      renderPanelRespaldos();
+    });
+  }
+
+  function restaurarDesdeNube(id) {
+    if (!esAdministradorActivo()) { alert('Solo un administrador puede restaurar respaldos.'); return; }
+    const est = estadoRespaldos();
+    const meta = listaRespaldosIndice(est.indice).find(function (m) { return m.id === id; });
+    if (!meta) return;
+    bloquearBotonesRespaldo(true);
+    mostrarEstadoRespaldo('Leyendo la copia del ' + formatearFechaHoraRespaldo(meta.fecha) + '…');
+    leerRespaldoDeNube(meta).then(function (datos) {
+      mostrarEstadoRespaldo('');
+      abrirModalRestaurar(datos, 'Vas a volver a la copia del <b>' + formatearFechaHoraRespaldo(meta.fecha) + '</b> (' +
+        escaparHtml(textoTipoRespaldo(meta.tipo)) + ', hecha por ' + escaparHtml(meta.usuario || '—') + '). Revisa cuántos registros trae cada módulo:');
+    }).catch(function (err) {
+      console.error('No se pudo leer el respaldo:', err);
+      mostrarEstadoRespaldo('No se pudo leer esa copia: ' + (err && err.message || err), 'error');
+    }).then(function () {
+      bloquearBotonesRespaldo(false);
+    });
+  }
+
+  function descargarRespaldoDeNube(id) {
+    if (!esAdministradorActivo()) { alert('Solo un administrador puede descargar respaldos.'); return; }
+    const est = estadoRespaldos();
+    const meta = listaRespaldosIndice(est.indice).find(function (m) { return m.id === id; });
+    if (!meta) return;
+    bloquearBotonesRespaldo(true);
+    mostrarEstadoRespaldo('Preparando el archivo de la copia del ' + formatearFechaHoraRespaldo(meta.fecha) + '…');
+    leerRespaldoDeNube(meta).then(function (datos) {
+      const archivo = armarArchivoRespaldo(datos, meta.resumen || {}, meta.fecha, 'nube_' + meta.tipo);
+      archivo.usuario = meta.usuario || '';
+      descargarArchivo(nombreArchivoRespaldo(meta.fecha), JSON.stringify(archivo), 'application/json');
+      registrarDescargaRespaldo(Date.now());
+      mostrarEstadoRespaldo('Archivo descargado: ' + nombreArchivoRespaldo(meta.fecha), 'ok');
+    }).catch(function (err) {
+      mostrarEstadoRespaldo('No se pudo descargar esa copia: ' + (err && err.message || err), 'error');
+    }).then(function () {
+      bloquearBotonesRespaldo(false);
+    });
+  }
+
+  function leerArchivoRespaldo(archivo) {
+    if (!esAdministradorActivo()) { alert('Solo un administrador puede restaurar respaldos.'); return; }
+    if (!archivo) return;
+    mostrarEstadoRespaldo('Leyendo el archivo ' + archivo.name + '…');
+    const lector = new FileReader();
+    lector.onload = function () {
+      let contenido;
+      try { contenido = JSON.parse(lector.result); } catch (e) {
+        mostrarEstadoRespaldo('El archivo no es un respaldo válido (no se pudo leer).', 'error');
+        return;
+      }
+      if (!contenido || contenido.aplicacion !== 'SEGSOL' || !contenido.datos || typeof contenido.datos !== 'object') {
+        mostrarEstadoRespaldo('Este archivo no es un respaldo de "Respaldar todo". (Los archivos "Exportar JSON" de cada módulo son de un solo módulo y no se pueden restaurar aquí.)', 'error');
+        return;
+      }
+      mostrarEstadoRespaldo('');
+      const fecha = contenido.fechaMs || (contenido.fecha ? Date.parse(contenido.fecha) : 0);
+      abrirModalRestaurar(contenido.datos, 'Vas a cargar el archivo <b>' + escaparHtml(archivo.name) + '</b>' +
+        (fecha ? ' (respaldo del <b>' + formatearFechaHoraRespaldo(fecha) + '</b>' + (contenido.usuario ? ', hecho por ' + escaparHtml(contenido.usuario) : '') + ')' : '') +
+        '. Revisa cuántos registros trae cada módulo:');
+    };
+    lector.onerror = function () { mostrarEstadoRespaldo('No se pudo leer el archivo.', 'error'); };
+    lector.readAsText(archivo);
+  }
+
+  /* ---- Interfaz ---- */
+  function textoTipoRespaldo(tipo) {
+    if (tipo === 'auto') return 'Automático';
+    if (tipo === 'manual') return 'Manual';
+    if (tipo === 'previo') return 'Antes de restaurar';
+    return tipo || '—';
+  }
+
+  function mostrarEstadoRespaldo(texto, clase) {
+    const el = document.getElementById('estadoRespaldo');
+    if (!el) return;
+    el.textContent = texto || '';
+    el.className = 'estado-respaldo' + (clase ? ' ' + clase : '');
+  }
+
+  function bloquearBotonesRespaldo(bloquear) {
+    ['btnRespaldoNubeAhora', 'btnRespaldarTodoArchivo', 'btnRestaurarDesdeArchivo', 'selectMaxCopiasRespaldo'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) el.disabled = !!bloquear || (id !== 'btnRespaldarTodoArchivo' && id !== 'btnRestaurarDesdeArchivo' && !nubeListaParaRespaldos());
+    });
+    document.querySelectorAll('#cuerpoTablaRespaldos button').forEach(function (b) { b.disabled = !!bloquear; });
+  }
+
+  function renderPanelRespaldos() {
+    if (!respaldosListos) return;
+    const cuerpo = document.getElementById('cuerpoTablaRespaldos');
+    if (!cuerpo) return;
+    if (!esAdministradorActivo()) { cuerpo.innerHTML = ''; return; }
+    const est = estadoRespaldos();
+    if (nubeListaParaRespaldos() && !est.escuchandoIndice) escucharIndiceRespaldos();
+    const indice = est.indice;
+    const lista = listaRespaldosIndice(indice);
+
+    document.getElementById('resRespaldoUltimoAuto').textContent = (indice && indice.ultimoAuto) ? formatearFechaHoraRespaldo(indice.ultimoAuto) : (nubeListaParaRespaldos() ? 'Todavía ninguno' : 'Sin conexión con la nube');
+    const desc = ultimaDescargaRespaldo();
+    document.getElementById('resRespaldoUltimaDescarga').textContent = desc ? formatearFechaHoraRespaldo(desc.fecha) + (desc.usuario ? ' (' + desc.usuario + ')' : '') : 'Nunca';
+    const total = lista.reduce(function (s, m) { return s + (m.bytes || 0); }, 0);
+    document.getElementById('resRespaldoEspacio').textContent = formatearBytesRespaldo(total) + ' de ' + formatearBytesRespaldo(RESPALDO_PRESUPUESTO_BYTES) + ' (' + lista.length + ' copia' + (lista.length === 1 ? '' : 's') + ')';
+    const select = document.getElementById('selectMaxCopiasRespaldo');
+    if (select && document.activeElement !== select) select.value = String(maxCopiasRespaldo(indice));
+
+    if (!nubeListaParaRespaldos()) {
+      cuerpo.innerHTML = '<tr><td colspan="5" style="color:var(--gris-suave)">Sin conexión con la nube: no se pueden ver las copias guardadas. Igual puedes descargar o restaurar un archivo.</td></tr>';
+    } else if (!indice) {
+      cuerpo.innerHTML = '<tr><td colspan="5" style="color:var(--gris-suave)">Cargando copias…</td></tr>';
+    } else if (lista.length === 0) {
+      cuerpo.innerHTML = '<tr><td colspan="5" style="color:var(--gris-suave)">Todavía no hay copias en la nube. La primera se hará automáticamente en unos segundos, o puedes presionar "Hacer respaldo en la nube ahora".</td></tr>';
+    } else {
+      cuerpo.innerHTML = lista.map(function (m) {
+        return '<tr><td>' + formatearFechaHoraRespaldo(m.fecha) + '</td>' +
+          '<td><span class="tipo-respaldo ' + escaparHtml(m.tipo || '') + '">' + escaparHtml(textoTipoRespaldo(m.tipo)) + '</span></td>' +
+          '<td>' + escaparHtml(m.usuario || '—') + '</td>' +
+          '<td>' + formatearBytesRespaldo(m.bytes) + '</td>' +
+          '<td><button type="button" class="btn-peligro btn-restaurar-respaldo" data-id="' + escaparHtml(m.id) + '">Restaurar</button>' +
+          '<button type="button" class="btn-secundario btn-descargar-respaldo" data-id="' + escaparHtml(m.id) + '">Descargar</button></td></tr>';
+      }).join('');
+    }
+
+    let aviso = '';
+    if (indice && indice.ultimoErrorAuto && (!indice.ultimoAuto || indice.ultimoErrorAuto.fecha > indice.ultimoAuto)) {
+      aviso = '⚠️ El último respaldo automático falló (' + formatearFechaHoraRespaldo(indice.ultimoErrorAuto.fecha) + '): ' + indice.ultimoErrorAuto.mensaje;
+    }
+    const avisoEl = document.getElementById('avisoRespaldoAdmin');
+    avisoEl.textContent = aviso;
+    avisoEl.style.display = aviso ? '' : 'none';
+    bloquearBotonesRespaldo(est.ocupado);
+  }
+
+  // Aviso para administradores en Inicio y en el panel cuando hace tiempo que no se descarga un archivo.
+  function actualizarAvisosRespaldo() {
+    if (!respaldosListos) return;
+    const el = document.getElementById('avisoRespaldoInicio');
+    if (!el) return;
+    if (!esAdministradorActivo()) { el.style.display = 'none'; return; }
+    const desc = ultimaDescargaRespaldo();
+    const dias = desc ? diasDesde(desc.fecha) : null;
+    if (desc && dias < RESPALDO_DIAS_AVISO_DESCARGA) { el.style.display = 'none'; return; }
+    el.innerHTML = (desc
+      ? '🗄️ Hace ' + dias + ' días que no se descarga un respaldo de SEGSOL.'
+      : '🗄️ Todavía no se ha descargado ningún respaldo de SEGSOL en archivo.') +
+      ' <button type="button" class="btn-agregar" id="btnAvisoDescargarRespaldo">Descargar ahora</button>';
+    el.style.display = '';
+    document.getElementById('btnAvisoDescargarRespaldo').addEventListener('click', descargarRespaldoCompleto);
+  }
+
+  /* ---- Eventos ---- */
+  document.getElementById('btnRespaldoNubeAhora').addEventListener('click', function () {
+    if (!esAdministradorActivo()) { alert('Solo un administrador puede hacer respaldos.'); return; }
+    const est = estadoRespaldos();
+    if (est.ocupado) return;
+    est.ocupado = true;
+    bloquearBotonesRespaldo(true);
+    mostrarEstadoRespaldo('Guardando la copia en la nube… no cierres la página.');
+    crearRespaldoEnNube('manual').then(function (meta) {
+      mostrarEstadoRespaldo('Copia guardada en la nube (' + formatearBytesRespaldo(meta.bytes) + ').', 'ok');
+    }).catch(function (err) {
+      console.error('No se pudo guardar el respaldo:', err);
+      mostrarEstadoRespaldo('No se pudo guardar la copia: ' + (err && err.message || err), 'error');
+    }).then(function () {
+      est.ocupado = false;
+      bloquearBotonesRespaldo(false);
+      renderPanelRespaldos();
+    });
+  });
+
+  document.getElementById('btnRespaldarTodoArchivo').addEventListener('click', descargarRespaldoCompleto);
+
+  document.getElementById('btnRestaurarDesdeArchivo').addEventListener('click', function () {
+    if (!esAdministradorActivo()) { alert('Solo un administrador puede restaurar respaldos.'); return; }
+    const input = document.getElementById('inputArchivoRespaldo');
+    input.value = '';
+    input.click();
+  });
+  document.getElementById('inputArchivoRespaldo').addEventListener('change', function (e) {
+    leerArchivoRespaldo(e.target.files && e.target.files[0]);
+  });
+
+  document.getElementById('cuerpoTablaRespaldos').addEventListener('click', function (e) {
+    const b = e.target.closest('button[data-id]');
+    if (!b || b.disabled) return;
+    if (b.classList.contains('btn-restaurar-respaldo')) restaurarDesdeNube(b.getAttribute('data-id'));
+    if (b.classList.contains('btn-descargar-respaldo')) descargarRespaldoDeNube(b.getAttribute('data-id'));
+  });
+
+  document.getElementById('selectMaxCopiasRespaldo').addEventListener('change', function (e) {
+    if (!esAdministradorActivo() || !nubeListaParaRespaldos()) return;
+    const n = parseInt(e.target.value, 10);
+    refDocRespaldo(RESPALDO_DOC_INDICE).set({ maxCopias: n }, { merge: true }).then(function () {
+      mostrarEstadoRespaldo('Listo: se conservarán las últimas ' + n + ' copias (las más antiguas se borran al hacer la siguiente).', 'ok');
+    }).catch(function (err) {
+      mostrarEstadoRespaldo('No se pudo cambiar la cantidad de copias: ' + (err && err.message || err), 'error');
+    });
+  });
+
+  document.getElementById('inputConfirmarRestaurar').addEventListener('input', function (e) {
+    document.getElementById('btnConfirmarRestaurar').disabled = e.target.value.trim().toUpperCase() !== 'RESTAURAR';
+  });
+  document.getElementById('inputConfirmarRestaurar').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') confirmarRestauracion();
+  });
+  document.getElementById('btnConfirmarRestaurar').addEventListener('click', confirmarRestauracion);
+  document.getElementById('btnCancelarRestaurar').addEventListener('click', cerrarModalRestaurar);
+
+  // Desde aquí el módulo de respaldos ya está listo (algunas funciones se llamaron antes, al
+  // abrir la sesión guardada; se vuelven a ejecutar ahora con todo cargado).
+  var respaldosListos = true;
+  actualizarAvisosRespaldo();
+  renderPanelRespaldos();
+  programarRespaldoAutomatico();
 
   iniciarSincronizacionNube();
 })();
