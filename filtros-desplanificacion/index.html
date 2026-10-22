@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c5a61">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
+<title>Filtros para Desplanificación</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Barlow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: sticky header with tabs (Códigos → Detalle → Tabla dinámica); one column of cards; wide tables scroll inside their own box. */
+:root{
+  --bg:#eef2f3; --surface:#ffffff; --ink:#15232b; --muted:#5b6a73; --line:#d6dee2;
+  --accent:#0c5a61; --accent-ink:#ffffff; --soft:#dfeeef; --mark:#c98a0c; --mark-soft:#fbf1dc;
+  --danger:#b3261e; --danger-soft:#fbe5e3; --sub:#e7f1f2; --tot:#cfe4e6;
+  --f-display:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1518; --surface:#162126; --ink:#e4ecef; --muted:#91a2aa; --line:#29383f;
+  --accent:#55b6bd; --accent-ink:#052124; --soft:#173338; --mark:#f0b93a; --mark-soft:#33290f;
+  --danger:#f08a82; --danger-soft:#3a1c1a; --sub:#1b2d32; --tot:#21403f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1518; --surface:#162126; --ink:#e4ecef; --muted:#91a2aa; --line:#29383f;
+  --accent:#55b6bd; --accent-ink:#052124; --soft:#173338; --mark:#f0b93a; --mark-soft:#33290f;
+  --danger:#f08a82; --danger-soft:#3a1c1a; --sub:#1b2d32; --tot:#21403f; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 96px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+.wrap{max-width:880px;margin:0 auto}
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line);
+  margin:0 calc(-1 * max(16px,env(safe-area-inset-right,0px))) 0 calc(-1 * max(16px,env(safe-area-inset-left,0px)));
+  padding:12px max(16px,env(safe-area-inset-right,0px)) 0 max(16px,env(safe-area-inset-left,0px))}
+.hd{max-width:880px;margin:0 auto}
+h1{font-family:var(--f-display);font-weight:700;font-size:1.45rem;line-height:1.1;margin:0;letter-spacing:.01em;text-wrap:balance}
+.src{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;color:var(--muted);font-size:.82rem;margin-top:4px}
+.src b{color:var(--ink);font-weight:600}
+.linkbtn{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-weight:600;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.tabs{display:flex;gap:0;margin-top:10px}
+.tab{flex:1;background:none;border:0;border-bottom:3px solid transparent;padding:9px 4px 8px;font:600 .92rem var(--f-body);color:var(--muted);cursor:pointer}
+.tab[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+.tab .n{display:inline-block;min-width:1.4em;padding:0 5px;margin-left:4px;border-radius:9px;background:var(--soft);color:var(--accent);font-size:.75rem}
+
+main{display:grid;gap:14px;padding-top:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:12px;min-width:0}
+.card h2{font-family:var(--f-display);font-weight:700;font-size:1.08rem;margin:0;letter-spacing:.02em}
+.hint{color:var(--muted);font-size:.86rem;margin:0}
+textarea{width:100%;min-height:96px;resize:vertical;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);
+  font:500 1rem var(--f-mono);padding:10px}
+textarea:focus,button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:10px 14px;
+  font:600 .95rem var(--f-body);cursor:pointer;min-height:44px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.ghost{border-color:transparent;background:none;color:var(--accent)}
+.btn.warn{color:var(--danger)}
+.btn.wide{flex:1}
+.btn:disabled{opacity:.45;cursor:default}
+.msg{font-size:.86rem;padding:8px 10px;border-radius:8px;background:var(--soft)}
+.msg:empty{display:none}
+
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stat{background:var(--bg);border-radius:8px;padding:8px 10px;min-width:0}
+.stat .k{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.stat .v{font:700 1.15rem var(--f-display);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+@media (max-width:420px){.stats{grid-template-columns:repeat(2,1fr)}}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:5px 4px 5px 9px;background:var(--bg);max-width:100%;min-width:0}
+.chip .c{font:500 .88rem var(--f-mono);color:var(--ink)}
+.chip .nm{font-size:.78rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+.chip .ln{font-size:.72rem;font-weight:700;color:var(--accent);background:var(--soft);border-radius:6px;padding:0 5px}
+.chip.miss{border-color:var(--danger);background:var(--danger-soft)}
+.chip.miss .nm{color:var(--danger)}
+.chip .x{border:0;background:none;color:var(--muted);font-size:1.1rem;line-height:1;width:28px;height:28px;border-radius:6px;cursor:pointer}
+.empty{color:var(--muted);font-size:.9rem;padding:6px 0}
+
+.tbox{overflow-x:auto;border:1px solid var(--line);border-radius:8px;max-height:65vh;overflow-y:auto}
+table.t{border-collapse:collapse;font-size:.84rem;width:max-content;min-width:100%}
+.t th,.t td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap;vertical-align:top}
+.t th{position:sticky;top:0;background:var(--accent);color:var(--accent-ink);font-weight:600;z-index:1}
+.t td.num,.t th.num{text-align:right;font-variant-numeric:tabular-nums}
+.t td.mono{font-family:var(--f-mono);font-size:.8rem}
+.t td.ck,.t th.ck{width:34px;padding:4px 6px;text-align:center}
+.t tr.sub td{background:var(--sub);font-weight:700}
+.t tr.tot td{background:var(--tot);font-weight:700}
+.t tr.sel td{background:var(--mark-soft)}
+.t tr.sel td.ck{box-shadow:inset 3px 0 0 var(--mark)}
+.t tbody tr{cursor:pointer}
+input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+
+.fields{display:grid;gap:6px}
+.fld{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:4px 4px 4px 10px;background:var(--bg)}
+.fld .nm{flex:1;font-weight:600;min-width:0}
+.fld .lvl{font:500 .75rem var(--f-mono);color:var(--muted);width:1.4em}
+.ib{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:6px;width:38px;height:36px;font-size:1rem;cursor:pointer}
+.ib:disabled{opacity:.3}
+.avail{display:flex;flex-wrap:wrap;gap:6px}
+.add{border:1px dashed var(--accent);background:none;color:var(--accent);border-radius:8px;padding:7px 11px;font:600 .88rem var(--f-body);cursor:pointer;min-height:38px}
+.opts{display:grid;gap:10px}
+.opt{display:flex;align-items:center;gap:10px;font-weight:500}
+.opt select{font:500 .92rem var(--f-body);padding:7px 8px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.lbl{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600}
+
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);
+  padding:10px max(16px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.bar .in{max-width:880px;margin:0 auto;display:flex;gap:8px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:9;
+  background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-weight:600;font-size:.9rem;max-width:90vw;text-align:center}
+.modal{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:grid;place-items:center;padding:16px}
+.modal .box{background:var(--surface);border-radius:10px;padding:14px;max-width:880px;width:100%;max-height:85vh;display:grid;gap:10px;grid-template-rows:auto 1fr auto;min-width:0}
+.modal .copyarea{overflow:auto;background:#fff;color:#000;border-radius:6px;padding:8px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<header><div class="hd">
+  <h1>Filtros para Desplanificación</h1>
+  <div class="src"><span id="srcInfo"></span>
+    <button class="linkbtn" id="loadBtn" type="button">Cargar otro Excel</button>
+    <button class="linkbtn" id="resetData" type="button" hidden>Quitar hoja</button>
+    <input type="file" id="fileIn" accept=".xlsx,.xls,.xlsm" hidden>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" id="t-codigos" data-v="codigos" aria-selected="true">Códigos<span class="n" id="nCod">0</span></button>
+    <button class="tab" role="tab" id="t-detalle" data-v="detalle" aria-selected="false">Detalle<span class="n" id="nDet">0</span></button>
+    <button class="tab" role="tab" id="t-tabla" data-v="tabla" aria-selected="false">Tabla dinámica</button>
+  </nav>
+</div></header>
+
+<div class="wrap"><main>
+
+<!-- CÓDIGOS -->
+<section id="v-codigos" class="view">
+  <div class="card" id="loadCard" style="margin-bottom:14px;border-color:var(--accent)">
+    <h2>1. Carga la hoja de ruta</h2>
+    <p class="hint">Elige el Excel de la hoja de ruta desde tu celular (el que tiene Ruta, IDCli, Nombre Cli, Orden de Compra, IDMat, Material, Cjas y HL). Se lee aquí mismo y queda guardado solo en este teléfono.</p>
+    <button class="btn primary" id="loadBtn2" type="button">Elegir archivo Excel</button>
+  </div>
+  <div class="card">
+    <h2>IDCli a filtrar</h2>
+    <p class="hint">Pega uno o varios códigos. Pueden ir separados por espacios, comas o en líneas distintas. Se quedan guardados aunque cierres la página.</p>
+    <textarea id="codesIn" inputmode="numeric" placeholder="Ej: 10932255 13856428 11440370"></textarea>
+    <div class="row">
+      <button class="btn primary wide" id="addCodes" type="button">Agregar códigos</button>
+    </div>
+    <div class="msg" id="addMsg" role="status"></div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="stats" id="stats"></div>
+    <div class="row" style="justify-content:space-between">
+      <span class="lbl" id="chipsLbl">Códigos agregados</span>
+      <button class="btn ghost warn" id="clearAll" type="button">Quitar todos</button>
+    </div>
+    <div class="chips" id="chips"></div>
+  </div>
+</section>
+
+<!-- DETALLE -->
+<section id="v-detalle" class="view" hidden>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <h2>Líneas filtradas</h2>
+      <span class="hint" id="detInfo"></span>
+    </div>
+    <p class="hint">Toca una fila para marcarla. Si no marcas nada, se copia todo.</p>
+    <div class="row">
+      <button class="btn" id="detAll" type="button">Marcar todo</button>
+      <button class="btn" id="detNone" type="button">Desmarcar</button>
+    </div>
+    <div class="tbox"><table class="t" id="detTable"></table></div>
+  </div>
+</section>
+
+<!-- TABLA DINÁMICA -->
+<section id="v-tabla" class="view" hidden>
+  <div class="card">
+    <h2>Campos de la tabla</h2>
+    <div class="lbl">Filas (en este orden)</div>
+    <div class="fields" id="rowFields"></div>
+    <div class="lbl">Agregar campo</div>
+    <div class="avail" id="availFields"></div>
+    <div class="lbl">Valores</div>
+    <div class="opts">
+      <label class="opt"><input type="checkbox" id="vCajas" checked> Suma de Cajas</label>
+      <label class="opt"><input type="checkbox" id="vHL" checked> Suma de HL</label>
+    </div>
+    <div class="lbl">Diseño</div>
+    <div class="opts">
+      <label class="opt">Subtotales
+        <select id="subMode"><option value="first">Solo del primer campo</option><option value="all">De todos los campos</option><option value="none">Ninguno</option></select>
+      </label>
+      <label class="opt"><input type="checkbox" id="repeatLbl"> Repetir etiquetas en cada fila</label>
+      <label class="opt"><input type="checkbox" id="grand" checked> Total general</label>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="row" style="justify-content:space-between">
+      <h2>Resultado</h2>
+      <span class="hint" id="pvInfo"></span>
+    </div>
+    <p class="hint">Toca filas para copiar solo esas. Si no marcas nada, se copia la tabla completa.</p>
+    <div class="row">
+      <button class="btn" id="pvAll" type="button">Marcar todo</button>
+      <button class="btn" id="pvNone" type="button">Desmarcar</button>
+    </div>
+    <div class="tbox"><table class="t" id="pvTable"></table></div>
+  </div>
+</section>
+
+</main></div>
+
+<div class="bar"><div class="in" id="barIn"></div></div>
+<div class="toast" id="toast" hidden></div>
+<div class="modal" id="modal" hidden><div class="box">
+  <div><h2 style="margin:0 0 4px;font-family:var(--f-display)">Copia manual</h2>
+  <p class="hint">Tu navegador no dejó copiar automáticamente. La tabla ya está seleccionada: mantén presionado sobre ella y elige <b>Copiar</b>.</p></div>
+  <div class="copyarea" id="copyArea" contenteditable="true"></div>
+  <div class="row"><button class="btn primary wide" id="closeModal" type="button">Listo</button></div>
+</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+const EMPTY = {archivo:'',fecha:'',cli:{},mat:{},rows:[]};
+const SEED = EMPTY;
+const FIELDS = ['Ruta','IDCli','Nombre Cli','Orden de Compra','IDMat','Material'];
+const MONO = new Set(['IDCli','Orden de Compra','IDMat','Ruta']);
+const $ = id => document.getElementById(id);
+const store = {
+  get(k){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):null }catch(e){ return null } },
+  set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); return true }catch(e){ return false } },
+  del(k){ try{ localStorage.removeItem(k) }catch(e){} }
+};
+const norm = s => String(s??'').trim().replace(/^0+(?=\d)/,'');
+const fmtC = n => Math.round(n).toLocaleString('en-US');
+const fmtH = n => n==null ? '#N/A' : n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const cmp = (a,b) => String(a).localeCompare(String(b),'es',{numeric:true,sensitivity:'base'});
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- datos ---------- */
+let DATA, ROWS, BYCLI, CUSTOM=false;
+function setData(d, custom){
+  DATA=d; CUSTOM=custom;
+  ROWS = d.rows.map(r=>({'Ruta':r[0],'IDCli':r[1],'Nombre Cli':d.cli[r[1]]||'','Orden de Compra':r[2],'IDMat':r[3],'Material':d.mat[r[3]]||'','Cajas':+r[4]||0,'HL':r[5]}));
+  BYCLI = new Map();
+  ROWS.forEach((r,i)=>{ const k=norm(r.IDCli); if(!BYCLI.has(k)) BYCLI.set(k,[]); BYCLI.get(k).push(i) });
+  $('srcInfo').innerHTML = ROWS.length ? `<b>${esc(d.archivo)}</b> · Fecha ${esc(d.fecha||'—')} · ${ROWS.length.toLocaleString('en-US')} líneas` : 'Ninguna hoja cargada';
+  $('resetData').hidden = !ROWS.length;
+  $('loadCard').hidden = !!ROWS.length;
+  $('loadBtn').textContent = ROWS.length ? 'Cargar otro Excel' : 'Cargar Excel';
+}
+const saved = store.get('dp_data');
+setData(saved && saved.rows ? saved : SEED, !!(saved && saved.rows));
+
+/* ---------- estado ---------- */
+let codes = store.get('dp_codes') || [];   // [{raw, k}]
+let detSel = new Set(), pvSel = new Set();
+let view = 'codigos';
+let pvCfg = store.get('dp_pv') || {rows:['Ruta','IDCli','Nombre Cli','Material'], cajas:true, hl:true, sub:'first', repeat:false, grand:true};
+
+function filtered(){
+  const out=[];
+  const keys = new Set(codes.map(c=>c.k));
+  ROWS.forEach((r,i)=>{ if(keys.has(norm(r.IDCli))) out.push(r) });
+  return out;
+}
+
+/* ---------- códigos ---------- */
+function addCodes(){
+  const parts = $('codesIn').value.split(/[\s,;|]+/).map(s=>s.trim()).filter(Boolean);
+  if(!parts.length){ $('addMsg').textContent='Escribe o pega al menos un IDCli.'; return }
+  let added=0, dup=0, miss=[];
+  const have = new Set(codes.map(c=>c.k));
+  parts.forEach(p=>{ const k=norm(p); if(have.has(k)){dup++;return} have.add(k); codes.push({raw:p,k}); added++; if(!BYCLI.has(k)) miss.push(p) });
+  store.set('dp_codes',codes);
+  $('codesIn').value='';
+  let m = `Agregados: ${added}.`;
+  if(dup) m += ` Ya estaban: ${dup}.`;
+  if(miss.length) m += ` No están en la hoja: ${miss.join(', ')}.`;
+  $('addMsg').textContent = m;
+  detSel.clear(); pvSel.clear();
+  renderAll();
+}
+function removeCode(k){ codes = codes.filter(c=>c.k!==k); store.set('dp_codes',codes); detSel.clear(); pvSel.clear(); renderAll() }
+
+let clearArmed=false;
+$('clearAll').onclick = ()=>{
+  if(!codes.length) return;
+  if(!clearArmed){ clearArmed=true; $('clearAll').textContent='¿Seguro? Toca otra vez'; setTimeout(()=>{clearArmed=false;$('clearAll').textContent='Quitar todos'},3500); return }
+  clearArmed=false; $('clearAll').textContent='Quitar todos';
+  codes=[]; store.set('dp_codes',codes); detSel.clear(); pvSel.clear(); $('addMsg').textContent=''; renderAll();
+};
+$('addCodes').onclick = addCodes;
+$('codesIn').addEventListener('keydown',e=>{ if(e.key==='Enter' && (e.ctrlKey||e.metaKey)) addCodes() });
+
+function renderCodes(){
+  const f = filtered();
+  const found = codes.filter(c=>BYCLI.has(c.k)).length;
+  const cj = f.reduce((s,r)=>s+r.Cajas,0), hl=f.reduce((s,r)=>s+(r.HL||0),0);
+  $('stats').innerHTML = [['Clientes',`${found}<span style="color:var(--muted);font-size:.8em"> / ${codes.length}</span>`],['Líneas',fmtC(f.length)],['Cajas',fmtC(cj)],['HL',fmtH(hl)]]
+    .map(([k,v])=>`<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  $('chipsLbl').textContent = codes.length ? `Códigos agregados (${codes.length})` : 'Códigos agregados';
+  $('chips').innerHTML = codes.length ? codes.map(c=>{
+    const idx = BYCLI.get(c.k);
+    const nm = idx ? ROWS[idx[0]]['Nombre Cli'] : 'No está en la hoja';
+    return `<span class="chip${idx?'':' miss'}"><span class="c">${esc(c.raw)}</span><span class="nm">${esc(nm)}</span>${idx?`<span class="ln">${idx.length}</span>`:''}<button class="x" type="button" aria-label="Quitar ${esc(c.raw)}" data-k="${esc(c.k)}">×</button></span>`
+  }).join('') : '<div class="empty">Todavía no agregaste códigos. Pégalos arriba y toca “Agregar códigos”.</div>';
+  $('clearAll').hidden = !codes.length;
+  $('nCod').textContent = codes.length;
+  $('nDet').textContent = f.length;
+}
+$('chips').addEventListener('click',e=>{ const b=e.target.closest('.x'); if(b) removeCode(b.dataset.k) });
+
+/* ---------- detalle ---------- */
+const DET_COLS = [...FIELDS,'Cajas','HL'];
+function renderDetail(){
+  const f = filtered();
+  $('detInfo').textContent = `${fmtC(f.length)} líneas${detSel.size?` · ${detSel.size} marcadas`:''}`;
+  if(!f.length){ $('detTable').innerHTML='<tbody><tr><td class="empty" style="padding:14px">Agrega códigos en la pestaña Códigos para ver sus líneas.</td></tr></tbody>'; return }
+  let h = '<thead><tr><th class="ck"></th>'+DET_COLS.map(c=>`<th class="${c==='Cajas'||c==='HL'?'num':''}">${c==='HL'?'Suma de HL':c}</th>`).join('')+'</tr></thead><tbody>';
+  f.forEach((r,i)=>{
+    const s=detSel.has(i);
+    h += `<tr data-i="${i}" class="${s?'sel':''}"><td class="ck"><input type="checkbox" tabindex="-1" ${s?'checked':''} aria-label="Marcar fila"></td>`+
+      FIELDS.map(c=>`<td class="${MONO.has(c)?'mono':''}">${esc(r[c])}</td>`).join('')+
+      `<td class="num">${fmtC(r.Cajas)}</td><td class="num">${fmtH(r.HL)}</td></tr>`;
+  });
+  const cj=f.reduce((s,r)=>s+r.Cajas,0), hl=f.reduce((s,r)=>s+(r.HL||0),0);
+  h += `<tr class="tot"><td class="ck"></td><td colspan="${FIELDS.length}">Total general</td><td class="num">${fmtC(cj)}</td><td class="num">${fmtH(hl)}</td></tr></tbody>`;
+  $('detTable').innerHTML=h;
+}
+$('detTable').addEventListener('click',e=>{ const tr=e.target.closest('tr[data-i]'); if(!tr) return; const i=+tr.dataset.i; detSel.has(i)?detSel.delete(i):detSel.add(i); renderDetail(); renderBar() });
+$('detAll').onclick=()=>{ filtered().forEach((_,i)=>detSel.add(i)); renderDetail(); renderBar() };
+$('detNone').onclick=()=>{ detSel.clear(); renderDetail(); renderBar() };
+
+/* ---------- tabla dinámica ---------- */
+function renderFields(){
+  const rf = pvCfg.rows;
+  $('rowFields').innerHTML = rf.length ? rf.map((f,i)=>`<div class="fld"><span class="lvl">${i+1}</span><span class="nm">${f}</span>
+    <button class="ib" type="button" data-a="up" data-i="${i}" ${i===0?'disabled':''} aria-label="Subir">↑</button>
+    <button class="ib" type="button" data-a="down" data-i="${i}" ${i===rf.length-1?'disabled':''} aria-label="Bajar">↓</button>
+    <button class="ib" type="button" data-a="del" data-i="${i}" aria-label="Quitar">×</button></div>`).join('')
+    : '<div class="empty">Agrega al menos un campo.</div>';
+  const av = FIELDS.filter(f=>!rf.includes(f));
+  $('availFields').innerHTML = av.length ? av.map(f=>`<button class="add" type="button" data-f="${f}">+ ${f}</button>`).join('') : '<span class="hint">Todos los campos están en uso.</span>';
+  $('vCajas').checked=pvCfg.cajas; $('vHL').checked=pvCfg.hl; $('subMode').value=pvCfg.sub; $('repeatLbl').checked=pvCfg.repeat; $('grand').checked=pvCfg.grand;
+}
+function pvChanged(){ store.set('dp_pv',pvCfg); pvSel.clear(); renderFields(); renderPivot(); renderBar() }
+$('rowFields').addEventListener('click',e=>{
+  const b=e.target.closest('.ib'); if(!b) return; const i=+b.dataset.i, r=pvCfg.rows;
+  if(b.dataset.a==='up') [r[i-1],r[i]]=[r[i],r[i-1]];
+  if(b.dataset.a==='down') [r[i+1],r[i]]=[r[i],r[i+1]];
+  if(b.dataset.a==='del') r.splice(i,1);
+  pvChanged();
+});
+$('availFields').addEventListener('click',e=>{ const b=e.target.closest('.add'); if(!b) return; pvCfg.rows.push(b.dataset.f); pvChanged() });
+$('vCajas').onchange=e=>{pvCfg.cajas=e.target.checked;pvChanged()};
+$('vHL').onchange=e=>{pvCfg.hl=e.target.checked;pvChanged()};
+$('subMode').onchange=e=>{pvCfg.sub=e.target.value;pvChanged()};
+$('repeatLbl').onchange=e=>{pvCfg.repeat=e.target.checked;pvChanged()};
+$('grand').onchange=e=>{pvCfg.grand=e.target.checked;pvChanged()};
+
+function valCols(){ const v=[]; if(pvCfg.cajas) v.push({k:'Cajas',h:'Suma de Cajas'}); if(pvCfg.hl) v.push({k:'HL',h:'Suma de HL'}); return v }
+let PV = [];
+function buildPivot(){
+  const f = filtered(), flds = pvCfg.rows, out=[];
+  if(!flds.length || !f.length) return out;
+  const sum = rs => ({Cajas:rs.reduce((s,r)=>s+r.Cajas,0), HL:rs.reduce((s,r)=>s+(r.HL||0),0)});
+  const lastLevel = flds.length-1;
+  (function rec(rs, lvl, path){
+    const g = new Map();
+    rs.forEach(r=>{ const k=r[flds[lvl]]??''; if(!g.has(k)) g.set(k,[]); g.get(k).push(r) });
+    [...g.keys()].sort(cmp).forEach(k=>{
+      const sub=g.get(k), p=[...path,k];
+      if(lvl===lastLevel){ out.push({type:'data', labels:p, v:sum(sub)}); }
+      else{
+        rec(sub, lvl+1, p);
+        const wantSub = pvCfg.sub==='all' || (pvCfg.sub==='first' && lvl===0);
+        if(wantSub){ const L=p.slice(); L[lvl]='Total '+k; out.push({type:'sub', labels:L, level:lvl, v:sum(sub)}); }
+      }
+    });
+  })(f,0,[]);
+  if(pvCfg.grand) out.push({type:'tot', labels:['Total general'], v:sum(f)});
+  return out;
+}
+function shownLabels(rows){
+  // Etiquetas como en Excel (diseño tabular): se oculta la repetida salvo que se pida repetir
+  let prev=[];
+  return rows.map(r=>{
+    if(r.type!=='data'){ prev=[]; return r.labels }
+    const L = r.labels.map((x,i)=> (!pvCfg.repeat && prev.length && r.labels.slice(0,i+1).every((y,j)=>y===prev[j])) ? '' : x);
+    prev=r.labels; return L;
+  });
+}
+function renderPivot(){
+  PV = buildPivot();
+  const vc = valCols(), flds = pvCfg.rows;
+  $('pvInfo').textContent = PV.length ? `${PV.filter(r=>r.type==='data').length} filas${pvSel.size?` · ${pvSel.size} marcadas`:''}` : '';
+  if(!codes.length){ $('pvTable').innerHTML='<tbody><tr><td class="empty" style="padding:14px">Primero agrega códigos en la pestaña Códigos.</td></tr></tbody>'; return }
+  if(!flds.length){ $('pvTable').innerHTML='<tbody><tr><td class="empty" style="padding:14px">Elige al menos un campo para las filas.</td></tr></tbody>'; return }
+  if(!PV.length){ $('pvTable').innerHTML='<tbody><tr><td class="empty" style="padding:14px">Los códigos agregados no tienen líneas en esta hoja.</td></tr></tbody>'; return }
+  const SL = shownLabels(PV);
+  let h='<thead><tr><th class="ck"></th>'+flds.map(f=>`<th>${f}</th>`).join('')+vc.map(c=>`<th class="num">${c.h}</th>`).join('')+'</tr></thead><tbody>';
+  PV.forEach((r,i)=>{
+    const s=pvSel.has(i), L=SL[i];
+    h+=`<tr data-i="${i}" class="${r.type!=='data'?r.type:''} ${s?'sel':''}"><td class="ck"><input type="checkbox" tabindex="-1" ${s?'checked':''} aria-label="Marcar fila"></td>`+
+      flds.map((f,j)=>`<td class="${MONO.has(f)&&r.type==='data'?'mono':''}">${esc(L[j]??'')}</td>`).join('')+
+      vc.map(c=>`<td class="num">${c.k==='Cajas'?fmtC(r.v.Cajas):fmtH(r.v.HL)}</td>`).join('')+'</tr>';
+  });
+  $('pvTable').innerHTML=h+'</tbody>';
+}
+$('pvTable').addEventListener('click',e=>{ const tr=e.target.closest('tr[data-i]'); if(!tr) return; const i=+tr.dataset.i; pvSel.has(i)?pvSel.delete(i):pvSel.add(i); renderPivot(); renderBar() });
+$('pvAll').onclick=()=>{ PV.forEach((_,i)=>pvSel.add(i)); renderPivot(); renderBar() };
+$('pvNone').onclick=()=>{ pvSel.clear(); renderPivot(); renderBar() };
+
+/* ---------- copiar ---------- */
+const CSS_T='border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt';
+const CSS_TH='background:#0c5a61;color:#ffffff;font-weight:bold;border:1px solid #9fb3b8;padding:4px 8px;text-align:left;white-space:nowrap';
+const CSS_TD='border:1px solid #c3ced2;padding:4px 8px;white-space:nowrap;color:#000000';
+function htmlTable(head, body){ // body: [{cells:[{t,num}], kind}]
+  const bg = {sub:'background:#e3eff0;font-weight:bold;', tot:'background:#cfe4e6;font-weight:bold;'};
+  return `<table style="${CSS_T}"><thead><tr>${head.map(h=>`<th style="${CSS_TH}${h.num?';text-align:right':''}">${esc(h.t)}</th>`).join('')}</tr></thead><tbody>`+
+    body.map(r=>`<tr>${r.cells.map(c=>`<td style="${CSS_TD};${bg[r.kind]||''}${c.num?'text-align:right;':''}">${esc(c.t)}</td>`).join('')}</tr>`).join('')+'</tbody></table>';
+}
+const tsv = (head, body) => [head.map(h=>h.t).join('\t'), ...body.map(r=>r.cells.map(c=>c.t).join('\t'))].join('\n');
+
+function copyDetail(){
+  const f = filtered(); if(!f.length) return toast('No hay líneas para copiar.');
+  const pick = detSel.size ? f.filter((_,i)=>detSel.has(i)) : f;
+  const head = [...FIELDS.map(t=>({t})),{t:'Cajas',num:1},{t:'Suma de HL',num:1}];
+  const body = pick.map(r=>({cells:[...FIELDS.map(c=>({t:r[c]})),{t:fmtC(r.Cajas),num:1},{t:fmtH(r.HL),num:1}]}));
+  const cj=pick.reduce((s,r)=>s+r.Cajas,0), hl=pick.reduce((s,r)=>s+(r.HL||0),0);
+  body.push({kind:'tot',cells:[{t:'Total general'},...FIELDS.slice(1).map(()=>({t:''})),{t:fmtC(cj),num:1},{t:fmtH(hl),num:1}]});
+  doCopy(htmlTable(head,body), tsv(head,body), `${pick.length} líneas copiadas`);
+}
+function copyPivot(){
+  if(!PV.length) return toast('No hay tabla para copiar.');
+  const vc=valCols(), flds=pvCfg.rows;
+  const idx = pvSel.size ? [...pvSel].sort((a,b)=>a-b) : PV.map((_,i)=>i);
+  const SL = pvSel.size ? null : shownLabels(PV);  // selección parcial: etiquetas completas
+  const head=[...flds.map(t=>({t})),...vc.map(c=>({t:c.h,num:1}))];
+  const body=idx.map(i=>{ const r=PV[i], L=SL?SL[i]:r.labels;
+    return {kind:r.type==='data'?'':r.type, cells:[...flds.map((_,j)=>({t:L[j]??''})),...vc.map(c=>({t:c.k==='Cajas'?fmtC(r.v.Cajas):fmtH(r.v.HL),num:1}))]} });
+  doCopy(htmlTable(head,body), tsv(head,body), pvSel.size?`${idx.length} filas copiadas`:'Tabla copiada');
+}
+async function doCopy(html, text, okMsg){
+  try{
+    if(navigator.clipboard && window.ClipboardItem){
+      await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([text],{type:'text/plain'})})]);
+      return toast(okMsg+'. Pégalo en el correo.');
+    }
+  }catch(e){}
+  try{
+    const d=document.createElement('div'); d.contentEditable='true'; d.style.cssText='position:fixed;left:-9999px;top:0;opacity:0';
+    d.innerHTML=html; document.body.appendChild(d);
+    const rg=document.createRange(); rg.selectNodeContents(d); const s=getSelection(); s.removeAllRanges(); s.addRange(rg);
+    const ok=document.execCommand('copy'); s.removeAllRanges(); d.remove();
+    if(ok) return toast(okMsg+'. Pégalo en el correo.');
+  }catch(e){}
+  $('copyArea').innerHTML=html; $('modal').hidden=false;
+  const rg=document.createRange(); rg.selectNodeContents($('copyArea')); const s=getSelection(); s.removeAllRanges(); s.addRange(rg);
+}
+$('closeModal').onclick=()=>{ $('modal').hidden=true; getSelection().removeAllRanges() };
+let tt; function toast(m){ const t=$('toast'); t.textContent=m; t.hidden=false; clearTimeout(tt); tt=setTimeout(()=>t.hidden=true,2600) }
+
+/* ---------- barra inferior y vistas ---------- */
+function renderBar(){
+  const b=$('barIn');
+  if(view==='codigos'){
+    b.innerHTML=`<button class="btn wide" id="bDet" type="button" ${codes.length?'':'disabled'}>Ver detalle</button><button class="btn primary wide" id="bPv" type="button" ${codes.length?'':'disabled'}>Generar tabla dinámica</button>`;
+    $('bDet').onclick=()=>go('detalle'); $('bPv').onclick=()=>go('tabla');
+  } else if(view==='detalle'){
+    b.innerHTML=`<button class="btn primary wide" id="bCp" type="button">${detSel.size?`Copiar ${detSel.size} marcadas`:'Copiar todo'}</button>`;
+    $('bCp').onclick=copyDetail;
+  } else {
+    b.innerHTML=`<button class="btn primary wide" id="bCp" type="button" ${PV.length?'':'disabled'}>${pvSel.size?`Copiar ${pvSel.size} filas marcadas`:'Copiar tabla'}</button>`;
+    $('bCp').onclick=copyPivot;
+  }
+}
+function go(v){
+  view=v;
+  document.querySelectorAll('.view').forEach(s=>s.hidden = s.id!=='v-'+v);
+  document.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-selected', t.dataset.v===v));
+  if(v==='detalle') renderDetail();
+  if(v==='tabla'){ renderFields(); renderPivot(); }
+  renderBar(); window.scrollTo(0,0);
+}
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>go(t.dataset.v));
+function renderAll(){ renderCodes(); if(view==='detalle') renderDetail(); if(view==='tabla') renderPivot(); renderBar() }
+
+/* ---------- cargar otro Excel ---------- */
+$('loadBtn').onclick=()=>$('fileIn').click();
+$('loadBtn2').onclick=()=>$('fileIn').click();
+$('resetData').onclick=()=>{ store.del('dp_data'); setData(SEED,false); detSel.clear(); pvSel.clear(); renderAll(); toast('Hoja quitada de este celular') };
+$('fileIn').onchange=async e=>{
+  const file=e.target.files[0]; e.target.value=''; if(!file) return;
+  if(typeof XLSX==='undefined') return toast('No se pudo cargar el lector de Excel. Revisa tu conexión.');
+  try{
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
+    let parsed=null;
+    for(const name of wb.SheetNames){ parsed=parseSheet(XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,raw:true,defval:null})); if(parsed) break }
+    if(!parsed) return toast('No encontré las columnas Ruta, IDCli y Material en ese Excel.');
+    parsed.archivo=file.name;
+    const ok=store.set('dp_data',parsed);
+    setData(parsed,true); detSel.clear(); pvSel.clear(); renderAll();
+    toast(`Cargadas ${parsed.rows.length.toLocaleString('en-US')} líneas`+(ok?'':' (no se guardará al cerrar)'));
+  }catch(err){ toast('No se pudo leer el archivo. ¿Es un Excel .xlsx?') }
+};
+function parseSheet(A){
+  const hi=A.findIndex(r=>r && r.some(c=>String(c??'').trim()==='Ruta') && r.some(c=>String(c??'').trim()==='IDCli'));
+  if(hi<0) return null;
+  const H=A[hi].map(c=>String(c??'').trim());
+  const col=t=>H.findIndex(h=>h===t), colP=f=>H.findIndex(f);
+  const ci={ruta:col('Ruta'),cli:col('IDCli'),nom:col('Nombre Cli'),oc:col('Orden de Compra'),mat:col('IDMat'),des:col('Material'),
+    cj:colP(h=>/^cj|^caja/i.test(h)),hl:colP(h=>/HL/i.test(h))};
+  if(ci.mat<0) return null;
+  let fecha='';
+  for(let i=0;i<hi;i++){ const r=A[i]||[]; if(String(r[0]??'').trim().toLowerCase().startsWith('fecha')){ const v=r[1];
+    fecha = v instanceof Date ? v.toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'}) : String(v??'') } }
+  const isTot=v=>typeof v==='string' && /^total/i.test(v.trim());
+  const cli={},mat={},rows=[]; let ruta=null,id=null,oc=null;
+  const g=(r,i)=> i<0?null:r[i];
+  for(let i=hi+1;i<A.length;i++){
+    const r=A[i]; if(!r) continue;
+    if(isTot(g(r,ci.ruta))||isTot(g(r,ci.cli))) continue;
+    if(g(r,ci.ruta)!=null && String(g(r,ci.ruta)).trim()) ruta=String(g(r,ci.ruta)).trim();
+    if(g(r,ci.cli)!=null && String(g(r,ci.cli)).trim()){ id=String(g(r,ci.cli)).trim(); cli[id]=String(g(r,ci.nom)??'').trim() }
+    if(g(r,ci.oc)!=null && String(g(r,ci.oc)).trim()) oc=String(g(r,ci.oc)).trim();
+    const m=g(r,ci.mat); if(m==null || !String(m).trim()) continue;
+    const mk=String(m).trim(); mat[mk]=String(g(r,ci.des)??'').trim();
+    const hl=g(r,ci.hl);
+    rows.push([ruta,id,oc,mk,+g(r,ci.cj)||0, typeof hl==='number'?Math.round(hl*1e4)/1e4:null]);
+  }
+  return rows.length?{fecha,cli,mat,rows}:null;
+}
+
+renderAll();
+</script>
+
+</body>
+</html>
