@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoadMap BK37</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: panel de rutas a la izquierda + mapa a pantalla completa; en celular, mapa arriba y lista abajo */
+:root{
+  --bg:#f3f5f7; --panel:#ffffff; --fg:#17212b; --muted:#5d6b78; --line:#dde3e9;
+  --accent:#0b6e8a; --accent-ink:#ffffff; --accent-soft:#e1f0f4; --warn:#b54708; --ok:#1a7f4b;
+  --f-display:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f161c; --panel:#162029; --fg:#e4eaef; --muted:#93a3b1; --line:#283641;
+  --accent:#3fb3d1; --accent-ink:#061318; --accent-soft:#16323c; --warn:#f0a35e; --ok:#5fd39a; color-scheme:dark;}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 var(--f-body);display:grid;grid-template-columns:390px 1fr;grid-template-rows:100%}
+aside{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+header{padding:16px 16px 12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+.brand{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+h1{font:700 24px/1 var(--f-display);letter-spacing:.02em;margin:0}
+h1 span{color:var(--accent)}
+.fecha{font:600 13px var(--f-mono);color:var(--muted)}
+.drops{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.drop{border:1.5px dashed var(--line);border-radius:8px;padding:10px;text-align:center;cursor:pointer;color:var(--muted);font-size:13px;line-height:1.3;min-width:0;overflow-wrap:anywhere}
+.drop:hover,.drop.over{border-color:var(--accent);color:var(--fg);background:var(--accent-soft)}
+.drop b{color:var(--accent);display:block;font-size:14px}
+.drop.done{border-style:solid;border-color:var(--accent)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input[type=search],select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:0}
+input[type=search]{flex:1}
+label.small{font-size:13px;color:var(--muted)}
+button{font:600 13px var(--f-body);border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--fg);padding:6px 10px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible,.drop:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.stats{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.stats .warn{color:var(--warn)}
+.list{overflow-y:auto;flex:1;min-height:0}
+.route{display:grid;grid-template-columns:6px 1fr auto;gap:10px;padding:10px 16px 10px 0;border-bottom:1px solid var(--line);cursor:pointer;align-items:center}
+.route:hover{background:var(--bg)}
+.route.sel{background:var(--accent-soft)}
+.swatch{align-self:stretch;border-radius:0 3px 3px 0}
+.rmain{min-width:0}
+.bk{font:600 15px var(--f-mono)}
+.placa{font:500 12px var(--f-mono);color:var(--muted);margin-left:6px}
+.meta{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.meta .warn{color:var(--warn)}
+.dl{display:flex;gap:6px}
+.dl button{font-family:var(--f-mono);padding:5px 8px;display:flex;align-items:center;gap:5px}
+.dl button i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.empty{padding:24px 16px;color:var(--muted)}
+.foot{padding:10px 16px;border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap}
+#map{height:100%;width:100%;background:var(--bg)}
+.pin{width:24px;height:24px;border-radius:50%;color:#fff;font:700 11px/20px var(--f-mono);text-align:center;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.45)}
+.pin.v2{border-radius:5px}
+.leaflet-popup-content{font:13px/1.4 var(--f-body);margin:10px 12px}
+.pop b{font-family:var(--f-display);font-size:15px}
+.pop .k{color:#5d6b78}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:6px;font-size:14px;z-index:2000}
+.legend{position:absolute;right:12px;top:12px;z-index:900;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--muted);display:flex;gap:10px}
+.legend i{display:inline-block;width:11px;height:11px;background:var(--muted);vertical-align:-1px;margin-right:4px;border-radius:50%}
+.legend i.sq{border-radius:3px}
+.mapwrap{position:relative;min-width:0}
+@media (max-width:760px){
+  body{grid-template-columns:1fr;grid-template-rows:46vh 1fr}
+  .mapwrap{order:-1}
+  aside{border-right:0;border-top:1px solid var(--line)}
+}
+</style>
+</head>
+<body>
+<aside>
+  <header>
+    <div class="brand"><h1>Road<span>Map</span> BK37</h1><span class="fecha" id="fecha">—</span></div>
+    <div class="drops">
+      <div class="drop" id="drop" tabindex="0"><b>1. Consolidado HR</b>Rutas, cajas y coordenadas</div>
+      <div class="drop" id="dropCj" tabindex="0"><b>2. Teléfonos</b>Hoja de ruta con maestro CLIENTES (opcional)</div>
+    </div>
+    <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
+    <input type="file" id="fileCj" accept=".xlsx,.xlsm,.xls" multiple hidden>
+    <div class="row">
+      <input type="search" id="q" placeholder="Buscar BK o placa…" autocomplete="off">
+      <select id="fViaje" aria-label="Viaje"><option value="">Todos los viajes</option><option value="1">Viaje 1</option><option value="2">Viaje 2</option><option value="3">Viaje 3</option></select>
+    </div>
+    <div class="row">
+      <label class="small" for="cjsCol">Dato para "Cjs":</label>
+      <select id="cjsCol"></select>
+    </div>
+    <div class="stats" id="stats">Sin archivo cargado</div>
+  </header>
+  <div class="list" id="list"><div class="empty">Carga el Consolidado HR del día para ver las rutas y descargar cada viaje en KML.</div></div>
+  <div class="foot">
+    <button class="primary" id="zipAll" disabled>Descargar todos (ZIP)</button>
+    <button id="showAll" disabled>Ver todas las rutas</button>
+  </div>
+</aside>
+<div class="mapwrap">
+  <div id="map"></div>
+  <div class="legend" id="legend"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+// ---------- Utilidades de lectura ----------
+const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+function findCol(headers, ...cands){
+  const H = headers.map(norm);
+  for (const c of cands){ const i = H.indexOf(norm(c)); if (i!==-1) return i; }
+  for (const c of cands){ const i = H.findIndex(h => h.includes(norm(c))); if (i!==-1) return i; }
+  return -1;
+}
+function toHHMM(v){
+  if (v===null || v===undefined || v==='') return '';
+  if (typeof v === 'number'){ let m = Math.round((v % 1) * 1440); if (m===1440) m=0;
+    return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); }
+  const s = String(v).trim(); const m = s.match(/^(\d{1,2}):(\d{2})/);
+  return m ? m[1].padStart(2,'0')+':'+m[2] : s;
+}
+function toISODate(v){
+  if (typeof v === 'number'){ const d = new Date(Math.round((v-25569)*86400000)); return d.toISOString().slice(0,10); }
+  const s = String(v||'').trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[0];
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  return s;
+}
+const num = v => { const n = typeof v==='number' ? v : parseFloat(String(v).replace(',','.')); return isFinite(n) ? n : NaN; };
+const fmtNum = v => { const n = num(v); if (isNaN(n)) return String(v ?? ''); return Number.isInteger(n) ? String(n) : String(Math.round(n*100)/100); };
+const xml = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const clean = s => String(s ?? '').replace(/\|/g,'/').replace(/\s+/g,' ').trim();
+const idKey = v => { const s = String(v ?? '').trim(); const n = num(s); return !isNaN(n) && /^\d+(\.0+)?$/.test(s) ? String(Math.round(n)) : s; };
+
+// Hoja de ruta: busca la hoja con Ruta, Latitud y Longitud
+function parseRoutes(wb){
+  const names = [...wb.SheetNames].sort((a,b)=> (norm(b)==='hojaderuta') - (norm(a)==='hojaderuta'));
+  for (const name of names){
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, raw:true, defval:''});
+    for (let h=0; h<Math.min(rows.length,15); h++){
+      const hdr = rows[h].map(x=>String(x));
+      const c = {
+        ruta:findCol(hdr,'Ruta'), placa:findCol(hdr,'Vehiculo','Placa'), fecha:findCol(hdr,'Fecha'),
+        codigo:findCol(hdr,'Codigo','IDCli'), cliente:hdr.findIndex(x=>norm(x)==='cliente'), dir:findCol(hdr,'Direccion'),
+        abre:findCol(hdr,'Abre'), cierra:findCol(hdr,'Cierra'), viaje:findCol(hdr,'Viaje'),
+        seq:findCol(hdr,'Secuencia de entrega','Sec1','Secuencia'), tel:findCol(hdr,'Telefono','CLIENTES.Column12','Column12'),
+        lat:findCol(hdr,'Latitud'), lon:findCol(hdr,'Longitud'), ciudad:findCol(hdr,'Ciudad'), llegada:findCol(hdr,'Llegada')
+      };
+      if (c.ruta<0 || c.lat<0 || c.lon<0) continue;
+      if (c.cliente<0) c.cliente = findCol(hdr,'Cliente');
+      const numericCols = hdr.map((x,i)=>({name:x,i})).filter(o=>o.name && rows.slice(h+1,h+30).some(r=>typeof r[o.i]==='number'));
+      const data = [];
+      for (const r of rows.slice(h+1)){
+        const ruta = String(r[c.ruta]||'').trim(); if (!ruta) continue;
+        data.push({
+          ruta, placa:String(r[c.placa]||'').trim(), fecha: c.fecha>=0 ? toISODate(r[c.fecha]) : '',
+          codigo:idKey(r[c.codigo]), cliente:clean(r[c.cliente]), dir:clean(r[c.dir]),
+          abre:toHHMM(r[c.abre]), cierra:toHHMM(r[c.cierra]), viaje: parseInt(r[c.viaje])||1,
+          seq: parseInt(r[c.seq])||0, tel: c.tel>=0 ? clean(r[c.tel]) : '', lat:num(r[c.lat]), lon:num(r[c.lon]),
+          ciudad: c.ciudad>=0 ? clean(r[c.ciudad]) : '', llegada: c.llegada>=0 ? toHHMM(r[c.llegada]) : '', raw:r
+        });
+      }
+      return {data, numericCols};
+    }
+  }
+  throw new Error('No encontré una hoja con columnas Ruta, Latitud y Longitud.');
+}
+
+// Tabla dinámica de cajas: Ruta | Viaje | IDCli | Cliente | ... | IDMat | Material | Cjas
+// Las celdas de Ruta/Viaje/IDCli vienen combinadas (vacías debajo) y hay filas "Total ...".
+function parseCajas(wb){
+  const out = {byTrip:new Map(), byCli:new Map(), rutas:new Set(), fecha:''};
+  for (const name of wb.SheetNames){
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, raw:true, defval:''});
+    for (let h=0; h<Math.min(rows.length,30); h++){
+      const hdr = rows[h].map(x=>String(x));
+      const iR=findCol(hdr,'Ruta'), iV=findCol(hdr,'Viaje'), iC=findCol(hdr,'IDCli','Codigo'), iJ=findCol(hdr,'Cjas','Cajas','Cjs'), iM=findCol(hdr,'IDMat','Material');
+      if (iC<0 || iJ<0) continue;
+      for (let k=0;k<h;k++){ const fi = rows[k].findIndex(x=>norm(x)==='fechapla'); if (fi>=0) out.fecha = toISODate(rows[k][fi+1]); }
+      let ruta='', viaje='', cli='';
+      for (const r of rows.slice(h+1)){
+        const isTot = x => /^total/i.test(String(x).trim());
+        if (iR>=0 && String(r[iR]).trim()) { if (isTot(r[iR])) { ruta=''; continue; } ruta=String(r[iR]).trim(); }
+        if (iV>=0 && String(r[iV]).trim()) { if (isTot(r[iV])) { viaje=''; continue; } viaje=String(parseInt(r[iV])); }
+        if (String(r[iC]).trim()) { if (isTot(r[iC])) { cli=''; continue; } cli=idKey(r[iC]); }
+        if (iM>=0 && !String(r[iM]).trim()) continue;          // solo filas de material
+        const cj = num(r[iJ]); if (!cli || isNaN(cj)) continue;
+        const kt = `${ruta}|${viaje}|${cli}`;
+        out.byTrip.set(kt,(out.byTrip.get(kt)||0)+cj);
+        out.byCli.set(cli,(out.byCli.get(cli)||0)+cj);
+        if (ruta) out.rutas.add(ruta);
+      }
+      return out;
+    }
+  }
+  throw new Error('No encontré columnas IDCli y Cjas en el archivo de cajas.');
+}
+
+// Teléfonos: cualquier hoja con Código/IDCli y una columna de teléfono (Telefono, Column12)
+function parsePhones(wb){
+  const out = new Map();
+  for (const name of wb.SheetNames){
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, raw:true, defval:''});
+    for (let h=0; h<Math.min(rows.length,15); h++){
+      const hdr = rows[h].map(x=>String(x));
+      const iC = findCol(hdr,'Codigo','IDCli'), iT = findCol(hdr,'Telefono','Celular','Column12');
+      if (iC<0 || iT<0) continue;
+      for (const r of rows.slice(h+1)){ const k=idKey(r[iC]), t=clean(r[iT]); if (k && t && !out.has(k)) out.set(k,t); }
+      break;
+    }
+  }
+  return out;
+}
+
+// ---------- KML (mismo formato que ROADMAP) ----------
+function buildKML(title, stops, cjsOf){
+  const pms = stops.map(s => {
+    const name = `|${s.cliente}|${s.dir}|Cjs:${cjsOf(s)}|VH:${s.abre}-${s.cierra}|Tel:${telOf(s)}`;
+    return `\t\t<Placemark>\n\t\t\t<name>${xml(name)}</name>\n\t\t\t<styleUrl>#placemark-red</styleUrl>\n\t\t\t<Point>\n\t\t\t\t<coordinates>${s.lon},${s.lat}</coordinates>\n\t\t\t</Point>\n\t\t</Placemark>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://earth.google.com/kml/2.2">
+\t<Document>
+\t\t<Style id="placemark-blue">
+\t\t\t<IconStyle>
+\t\t\t\t<Icon>
+\t\t\t\t\t<href>http://mapswith.me/placemarks/placemark-blue.png</href>
+\t\t\t\t</Icon>
+\t\t\t</IconStyle>
+\t\t</Style>
+\t\t<Style id="placemark-red">
+\t\t\t<IconStyle>
+\t\t\t\t<Icon>
+\t\t\t\t\t<href>http://mapswith.me/placemarks/placemark-red.png</href>
+\t\t\t\t</Icon>
+\t\t\t</IconStyle>
+\t\t</Style>
+\t\t<name>${xml(title)}</name>
+\t\t<visibility>1</visibility>
+${pms}
+\t</Document>
+</kml>
+`;
+}
+
+// ---------- Estado y UI ----------
+let parsed=null, routes=[], selected=null, layers=[];
+let cajas={byTrip:new Map(), byCli:new Map(), rutas:new Set(), files:[]};
+let phones=new Map(), extraFiles=[];
+const telOf = s => s.tel || phones.get(s.codigo) || '';
+const $ = id => document.getElementById(id);
+const map = L.map('map',{zoomControl:true}).setView([-12.0,-77.02],12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map);
+const routeColor = i => `hsl(${(i*137.508)%360} 72% 42%)`;
+// Colores fijos por viaje cuando se elige una ruta
+const TRIP_COLORS = {1:'#1f63d6', 2:'#e8590c', 3:'#2b9348', 4:'#9c36b5'};
+const tripColor = v => TRIP_COLORS[v] || '#495057';
+
+function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2800); }
+function saveBlob(blob, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500); }
+const kmlName = (r,v) => `${r.ruta}_${v}_${r.fecha}`;
+const tripStops = (r,v) => r.stops.filter(s=>s.viaje===v).sort((a,b)=>a.seq-b.seq);
+function cajasDe(s){
+  const t = cajas.byTrip.get(`${s.ruta}|${s.viaje}|${s.codigo}`);
+  if (t!==undefined) return t;
+  return cajas.byCli.get(s.codigo);
+}
+function cjsOf(s){
+  const sel = $('cjsCol').value;
+  if (sel==='cajas'){ const c = cajasDe(s); return c===undefined ? '' : fmtNum(c); }
+  const i = parseInt(sel); return i>=0 ? fmtNum(s.raw[i]) : '';
+}
+const sinCajas = list => list.filter(s=>cajasDe(s)===undefined).length;
+
+function downloadTrip(r,v){
+  const stops = tripStops(r,v); const name = kmlName(r,v);
+  saveBlob(new Blob([buildKML(name, stops, cjsOf)],{type:'application/vnd.google-earth.kml+xml'}), name+'.kml');
+  toast(`Descargado ${name}.kml (${stops.length} clientes)`);
+}
+async function downloadZip(list){
+  const zip = new JSZip(); let n=0;
+  for (const r of list) for (const v of r.viajes){ const name=kmlName(r,v); zip.file(name+'.kml', buildKML(name, tripStops(r,v), cjsOf)); n++; }
+  saveBlob(await zip.generateAsync({type:'blob'}), `RoadMap_${list[0]?.fecha || 'rutas'}.zip`);
+  toast(`ZIP con ${n} viajes descargado`);
+}
+
+function readFile(file){ return new Promise((ok,ko)=>{ const fr=new FileReader(); fr.onload=e=>{ try{ ok(XLSX.read(new Uint8Array(e.target.result),{type:'array'})); }catch(err){ ko(err);} }; fr.onerror=ko; fr.readAsArrayBuffer(file); }); }
+
+// Decide solo qué tipo de archivo es (por si lo sueltan en el recuadro equivocado)
+function isCajasWB(wb){ return wb.SheetNames.some(n=>{ const rows=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:''}).slice(0,30); return rows.some(r=>{ const h=r.map(norm); return h.includes('idcli') && h.some(x=>x.startsWith('cjas')||x==='cajas'); }); }); }
+
+async function loadFiles(files, slot){
+  for (const f of files){
+    try{
+      const wb = await readFile(f);
+      const kind = slot || (!parsed ? 'main' : 'extra');
+      if (isCajasWB(wb)) addCajas(parseCajas(wb), f.name);
+      else if (kind==='main') loadRoutes(wb, f.name);
+      else addPhones(parsePhones(wb), f.name);
+    }catch(err){ toast(`${f.name}: ${err.message}`); console.error(err); }
+  }
+  refresh();
+}
+function addPhones(map, fname){
+  if (!map.size){ toast(`${fname}: no encontré columna de teléfono`); return; }
+  map.forEach((v,k)=>{ if(!phones.has(k)) phones.set(k,v); });
+  extraFiles.push(fname); updateExtraBox();
+}
+function updateExtraBox(){
+  const all=[...extraFiles, ...cajas.files];
+  $('dropCj').classList.toggle('done', all.length>0);
+  $('dropCj').innerHTML = `<b>2. Teléfonos (${all.length})</b>${all.map(xml).join('<br>')}`;
+}
+function loadRoutes(wb, fname){
+  parsed = parseRoutes(wb);
+  const by = new Map();
+  parsed.data.forEach(s => { if(!by.has(s.ruta)) by.set(s.ruta,{ruta:s.ruta,placa:s.placa,fecha:s.fecha,stops:[]}); by.get(s.ruta).stops.push(s); });
+  routes = [...by.values()].sort((a,b)=>a.ruta.localeCompare(b.ruta));
+  routes.forEach((r,i)=>{ r.color=routeColor(i); r.viajes=[...new Set(r.stops.map(s=>s.viaje))].sort(); });
+  const opts = parsed.numericCols.filter(o=>!/lat|lon|codigo|secuencia|^sec\d|viaje|fecha|dist/i.test(norm(o.name)));
+  const prev = $('cjsCol').value;
+  $('cjsCol').innerHTML = opts.map(o=>`<option value="${o.i}">${xml(o.name)}${/^(entrega|cajas?|cjas|cjs)$/.test(norm(o.name))?' (cajas)':''}</option>`).join('')
+    + '<option value="cajas">Tabla dinámica de cajas</option><option value="-1">(vacío)</option>';
+  const def = opts.find(o=>/^(entrega|cajas?|cjas|cjs)$/.test(norm(o.name)));
+  $('cjsCol').value = [...$('cjsCol').options].some(o=>o.value===prev) ? prev : (def ? String(def.i) : 'cajas');
+  $('fecha').textContent = [...new Set(routes.map(r=>r.fecha))].join(' / ');
+  selected=null;
+  $('drop').classList.add('done'); $('drop').innerHTML = `<b>1. Consolidado HR</b>${xml(fname)}`;
+}
+function addCajas(c, fname){
+  c.byTrip.forEach((v,k)=>cajas.byTrip.set(k,v));
+  c.byCli.forEach((v,k)=>cajas.byCli.set(k,v));
+  c.rutas.forEach(r=>cajas.rutas.add(r));
+  cajas.files.push(fname);
+  if (parsed && c.fecha && routes[0] && c.fecha!==routes[0].fecha) toast(`Ojo: el archivo de cajas es del ${c.fecha} y la hoja de ruta del ${routes[0].fecha}`);
+  updateExtraBox();
+}
+
+function refresh(){
+  if (!parsed){ $('stats').textContent = cajas.files.length ? `Cajas cargadas para ${cajas.rutas.size} rutas. Falta la hoja de ruta.` : 'Sin archivo cargado'; return; }
+  const usaCajas = $('cjsCol').value==='cajas';
+  const falta = usaCajas ? sinCajas(parsed.data) : 0;
+  $('stats').innerHTML = `${routes.length} rutas · ${parsed.data.length} clientes · ${routes.reduce((t,r)=>t+r.viajes.length,0)} viajes`
+    + (parsed.data.some(x=>!telOf(x)) ? ` · <span class="warn">${parsed.data.filter(x=>!telOf(x)).length} sin teléfono</span>` : '')
+    + (usaCajas ? (cajas.files.length ? (falta ? ` · <span class="warn">${falta} clientes sin cajas</span>` : ' · cajas completas') : ' · <span class="warn">carga la tabla de cajas</span>') : '');
+  $('zipAll').disabled=false; $('showAll').disabled=false;
+  renderList(); drawMap();
+}
+
+function visibleRoutes(){
+  const q = norm($('q').value), fv = parseInt($('fViaje').value);
+  return routes.filter(r => (!q || norm(r.ruta).includes(q) || norm(r.placa).includes(q)) && (!fv || r.viajes.includes(fv)));
+}
+function renderList(){
+  const list = visibleRoutes(); const usaCajas = $('cjsCol').value==='cajas' && cajas.files.length; const showCj = $('cjsCol').value!=='-1';
+  if (!list.length){ $('list').innerHTML = `<div class="empty">${routes.length?'Ninguna ruta coincide con la búsqueda.':'Carga la hoja de ruta del día.'}</div>`; return; }
+  $('list').innerHTML = list.map(r => {
+    const isSel = selected===r.ruta;
+    const cnt = r.viajes.map(v=>{ const st=tripStops(r,v); const cj=st.reduce((t,s)=>t+(num(cjsOf(s))||0),0); return `V${v}: ${st.length}${showCj?` (${fmtNum(cj)} cjs)`:''}`; }).join(' · ');
+    const falta = usaCajas ? sinCajas(r.stops) : 0;
+    return `<div class="route${isSel?' sel':''}" data-r="${xml(r.ruta)}">
+      <div class="swatch" style="background:${r.color}"></div>
+      <div class="rmain"><div><span class="bk">${xml(r.ruta)}</span><span class="placa">${xml(r.placa)}</span></div>
+      <div class="meta">${r.stops.length} clientes · ${cnt}${falta?` · <span class="warn">${falta} sin cajas</span>`:''}</div></div>
+      <div class="dl">${r.viajes.map(v=>`<button data-dl="${xml(r.ruta)}" data-v="${v}" title="Descargar ${xml(kmlName(r,v))}.kml">${isSel?`<i style="background:${tripColor(v)}"></i>`:''}KML ${v}</button>`).join('')}</div>
+    </div>`; }).join('');
+}
+$('list').addEventListener('click', e => {
+  const b = e.target.closest('button[data-dl]');
+  if (b){ e.stopPropagation(); downloadTrip(routes.find(r=>r.ruta===b.dataset.dl), parseInt(b.dataset.v)); return; }
+  const row = e.target.closest('.route'); if (!row) return;
+  selected = selected===row.dataset.r ? null : row.dataset.r; renderList(); drawMap();
+});
+
+function renderLegend(list){
+  const vs = [...new Set(list.flatMap(r=>r.viajes))].sort();
+  $('legend').innerHTML = selected
+    ? vs.map(v=>`<span><i class="${v===2?'sq':''}" style="background:${tripColor(v)}"></i>Viaje ${v}</span>`).join('')
+    : '<span><i></i>Viaje 1</span><span><i class="sq"></i>Viaje 2</span><span>Color = ruta</span>';
+}
+
+function drawMap(fit=true){
+  layers.forEach(l=>map.removeLayer(l)); layers=[];
+  const fv = parseInt($('fViaje').value);
+  const list = selected ? routes.filter(r=>r.ruta===selected) : visibleRoutes();
+  renderLegend(list);
+  const pts=[];
+  for (const r of list){
+    for (const v of r.viajes){
+      if (fv && v!==fv) continue;
+      const col = selected ? tripColor(v) : r.color;
+      const st = tripStops(r,v).filter(s=>s.lat && s.lon && !isNaN(s.lat) && !isNaN(s.lon));
+      if (!st.length) continue;
+      layers.push(L.polyline(st.map(s=>[s.lat,s.lon]),{color:col,weight:selected?3:2,opacity:selected?.85:.5,dashArray:v===2?'6 6':v>=3?'2 5':null}).addTo(map));
+      st.forEach(s=>{
+        pts.push([s.lat,s.lon]);
+        const icon = L.divIcon({className:'',html:`<div class="pin${v===2?' v2':''}" style="background:${col}">${s.seq}</div>`,iconSize:[24,24],iconAnchor:[12,12]});
+        const cj = cjsOf(s);
+        layers.push(L.marker([s.lat,s.lon],{icon}).bindPopup(`<div class="pop"><b>${xml(s.cliente)}</b><br>${xml(s.dir)}<br>
+          <span class="k">Ruta</span> ${xml(r.ruta)} · ${xml(r.placa)} · <span class="k">Viaje</span> ${v} · <span class="k">Sec.</span> ${s.seq}<br>
+          <span class="k">Código</span> ${xml(s.codigo)} · <span class="k">Cjs</span> ${cj===''?'<i>sin dato</i>':xml(cj)}<br>
+          <span class="k">VH</span> ${s.abre}-${s.cierra}${s.llegada?` · <span class="k">Llegada</span> ${s.llegada}`:''}<br>
+          <span class="k">Tel</span> ${xml(telOf(s))}${s.ciudad?` · ${xml(s.ciudad)}`:''}</div>`).addTo(map));
+      });
+    }
+  }
+  if (fit && pts.length) map.fitBounds(pts,{padding:[30,30],maxZoom:16});
+}
+renderLegend([]);
+
+$('q').addEventListener('input', ()=>{ renderList(); drawMap(); });
+$('fViaje').addEventListener('change', ()=>{ renderList(); drawMap(); });
+$('cjsCol').addEventListener('change', ()=>{ if(parsed){ refresh(); } });
+$('showAll').addEventListener('click', ()=>{ selected=null; $('q').value=''; renderList(); drawMap(); });
+$('zipAll').addEventListener('click', ()=>downloadZip(visibleRoutes()));
+function wireDrop(dropId, inputId, slot){
+  const d=$(dropId), fi=$(inputId);
+  d.addEventListener('click', ()=>fi.click());
+  d.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fi.click(); }});
+  fi.addEventListener('change', ()=>{ if(fi.files.length) loadFiles([...fi.files], slot); fi.value=''; });
+  ['dragenter','dragover'].forEach(ev=>d.addEventListener(ev,e=>{e.preventDefault();d.classList.add('over');}));
+  ['dragleave','drop'].forEach(ev=>d.addEventListener(ev,e=>{e.preventDefault();d.classList.remove('over');}));
+  d.addEventListener('drop', e=>{ e.stopPropagation(); if(e.dataTransfer.files.length) loadFiles([...e.dataTransfer.files], slot); });
+}
+wireDrop('drop','file','main'); wireDrop('dropCj','fileCj','extra');
+document.addEventListener('dragover', e=>e.preventDefault());
+document.addEventListener('drop', e=>{ e.preventDefault(); if(e.dataTransfer.files.length) loadFiles([...e.dataTransfer.files]); });
+</script>
+</body>
+</html>
