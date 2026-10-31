@@ -1629,6 +1629,19 @@
     .btn-hamburguesa-nav { display: flex !important; align-items: center; justify-content: center; }
     .fondo-nav-movil.visible { display: block; }
   }
+
+  /* ---- Ajustes para celular ----
+     Evita que algún bloque sea más ancho que la pantalla (eso hacía que el celular achicara toda
+     la página y se viera desacomodada). Las tablas grandes siguen desplazándose de lado dentro
+     de su propio recuadro. */
+  .grid-avance-2col > *, .grid-caja-basedatos > *, .grid-dashboard > *, .grid-panel-asistencia > * { min-width: 0; }
+  .subnav-btn { white-space: nowrap; }
+  @media (max-width: 640px) {
+    /* Pestañas de cada sección: en varias filas, todas visibles, sin partir las palabras */
+    .sub-nav-asistencia { flex-wrap: wrap; gap: 2px 4px; }
+    .subnav-btn { padding: 8px 10px; font-size: 12.5px; flex: 1 1 auto; text-align: center; }
+    .grid-caja-basedatos, .grid-dashboard { grid-template-columns: 1fr; }
+  }
 </style>
 <style>/* required styles */
 
