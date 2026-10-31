@@ -5633,6 +5633,23 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return p;
   }
 
+  // Usuarios que NUNCA pueden volver a entrar a SEGSOL, aunque aparezcan en un respaldo antiguo
+  // o en la copia guardada de algún navegador. Se comparan sin importar mayúsculas/minúsculas.
+  const USUARIOS_BLOQUEADOS = ['bryantt2'];
+  function usuarioBloqueado(nombre) {
+    return USUARIOS_BLOQUEADOS.indexOf((nombre || '').toString().trim().toLowerCase()) !== -1;
+  }
+  function quitarUsuariosBloqueados(lista) {
+    return (Array.isArray(lista) ? lista : []).filter(function (u) { return u && u.usuario && !usuarioBloqueado(u.usuario); });
+  }
+
+  // Estado de la lista de usuarios de la nube: el inicio de sesión espera a que llegue la lista
+  // real desde Firebase (para no dejar entrar con una copia vieja guardada en el navegador).
+  function estadoUsuariosNube() {
+    if (!estadoUsuariosNube.s) estadoUsuariosNube.s = { listo: false, migracionEnCurso: false };
+    return estadoUsuariosNube.s;
+  }
+
   function cargarUsuarios() {
     try {
       const guardado = localStorage.getItem(CLAVE_USUARIOS);
@@ -5641,11 +5658,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       usuarios = [];
       mostrarAvisoStorage();
     }
-    // Primer uso: se crea el administrador por defecto para que siempre exista una forma de entrar.
-    if (usuarios.length === 0) {
-      usuarios.push({ usuario: 'bryantt2', password: 'bryan_04', esAdmin: true, permisos: permisosCompletos() });
-      guardarUsuarios();
-    }
+    // Ya NO se crea ningún usuario por defecto: los usuarios vienen siempre de la nube (Firebase).
+    // (Antes se creaba un administrador con una contraseña escrita en este archivo, y cualquiera
+    // que leyera el código podía usarla en un navegador nuevo.)
+    usuarios = quitarUsuariosBloqueados(usuarios);
   }
 
   function guardarUsuarios() {
@@ -5659,7 +5675,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   function buscarUsuario(nombre) {
     const texto = (nombre || '').trim().toLowerCase();
-    if (!texto) return null;
+    if (!texto || usuarioBloqueado(texto)) return null;
     return usuarios.find(function (u) { return u.usuario.toLowerCase() === texto; }) || null;
   }
 
@@ -5705,9 +5721,27 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     programarRespaldoAutomatico();
   }
 
+  // Espera (hasta ~10 s) a que llegue la lista de usuarios desde la nube. Si no hay conexión,
+  // se usa la última lista que este navegador recibió de la nube (modo sin conexión).
+  function esperarUsuariosNube() {
+    return new Promise(function (resolver) {
+      if (!nubeDisponible || estadoUsuariosNube().listo) { resolver(); return; }
+      avisoLogin.textContent = 'Conectando con la nube…';
+      const inicio = Date.now();
+      const intervalo = setInterval(function () {
+        if (estadoUsuariosNube().listo || !nubeDisponible || Date.now() - inicio > 10000) {
+          clearInterval(intervalo);
+          avisoLogin.textContent = '';
+          resolver();
+        }
+      }, 200);
+    });
+  }
+
   async function intentarLogin() {
     const nombre = loginUsuarioInput.value;
     const password = loginPasswordInput.value;
+    await esperarUsuariosNube();
     const u = buscarUsuario(nombre);
     if (!u) {
       avisoLogin.textContent = 'Usuario o contraseña incorrectos.';
@@ -5878,6 +5912,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const colaboradorVinculado = esColaborador ? document.getElementById('adminNuevoColaboradorVinculado').value : '';
 
     if (!nombre) { alert('Escribe el nombre de usuario.'); return; }
+    if (usuarioBloqueado(nombre)) { alert('Ese nombre de usuario no está permitido.'); return; }
     if (!password) { alert('Escribe una contraseña.'); return; }
     if (buscarUsuario(nombre)) { alert('Ya existe un usuario con ese nombre.'); return; }
     if (esColaborador && !colaboradorVinculado) { alert('Selecciona a qué colaborador se vincula esta cuenta.'); return; }
@@ -15410,16 +15445,24 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   registrarSincronizacion('usuarios', CLAVE_USUARIOS,
     function () { return usuarios; },
-    function (v) { usuarios = v || []; },
+    function (v) { usuarios = quitarUsuariosBloqueados(v); },
     function () {
       renderTablaUsuarios();
       if (usuarioActivo) {
         const actualizado = buscarUsuario(usuarioActivo.usuario);
-        if (actualizado) {
-          usuarioActivo = actualizado;
-          actualizarNombreUsuarioActivo(actualizado);
-          aplicarPermisosUI();
+        if (!actualizado) {
+          // El usuario con la sesión abierta fue eliminado o bloqueado: se cierra su sesión
+          // de inmediato, en todas las computadoras donde la tenga abierta.
+          try { localStorage.removeItem(CLAVE_SESION); } catch (e) { /* no-op */ }
+          alert('Tu usuario ya no tiene acceso a SEGSOL. La sesión se cerrará.');
+          location.reload();
+          return;
         }
+        usuarioActivo = actualizado;
+        actualizarNombreUsuarioActivo(actualizado);
+        aplicarPermisosUI();
+        // Si le quitaron el permiso de administrador mientras estaba en Administración, sale de ahí.
+        if (!actualizado.esAdmin && vistas.admin.style.display === 'block') mostrarVista('inicio');
       }
     }
   );
@@ -15715,7 +15758,48 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   /* ---- Espera inicial: no respaldar hasta tener todos los datos de la nube ---- */
+  /* ---- Cambio único de cuenta de administrador (octubre 2026) ----
+     La primera vez que SEGSOL se abre con esta versión, se crea el administrador GUISHE y se borra
+     bryantt2 de la lista de usuarios de la nube. Queda anotado en segsol/migraciones para que no se
+     repita (si más adelante se elimina o renombra GUISHE desde Administración, no vuelve a aparecer).
+     La contraseña se guarda solo como hash SHA-256, nunca en texto plano. */
+  function migrarCuentaAdministrador() {
+    const est = estadoUsuariosNube();
+    if (est.migracionEnCurso || est.migracionHecha || !nubeListaParaRespaldos()) return;
+    est.migracionEnCurso = true;
+    const ref = dbNube.collection('segsol').doc('migraciones');
+    ref.get().then(function (snap) {
+      const d = snap.exists ? (snap.data() || {}) : {};
+      if (d.adminGuishe) return;
+      // "usuarios" ya es la lista real de la nube (esto corre después de recibirla).
+      const lista = quitarUsuariosBloqueados(usuarios);
+      if (!lista.some(function (u) { return (u.usuario || '').toLowerCase() === 'guishe'; })) {
+        lista.push({
+          usuario: 'GUISHE',
+          password: 'fb73a7161d2caf37ceaf1940ebf7f43e5311b804b4667631298b0d33d404234e',
+          esAdmin: true,
+          permisos: permisosCompletos(),
+          colaboradorVinculado: null
+        });
+      }
+      usuarios = lista;
+      guardarUsuarios();
+      try { renderTablaUsuarios(); } catch (e) { /* no-op */ }
+      return ref.set({ adminGuishe: { fecha: Date.now() } }, { merge: true });
+    }).then(function () {
+      est.migracionHecha = true;
+    }).catch(function (err) {
+      console.error('No se pudo actualizar la cuenta de administrador:', err);
+    }).then(function () {
+      est.migracionEnCurso = false;
+    });
+  }
+
   function marcarDocRecibidoNube(nombreDoc, ok) {
+    if (nombreDoc === 'usuarios') {
+      estadoUsuariosNube().listo = true;
+      if (ok) migrarCuentaAdministrador();
+    }
     const est = estadoRespaldos();
     if (Object.prototype.hasOwnProperty.call(est.docsRecibidos, nombreDoc)) return;
     est.docsRecibidos[nombreDoc] = !!ok;
