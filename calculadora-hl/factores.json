@@ -1,0 +1,1187 @@
+{
+"items": {
+"4409": {
+"d": "CRISTAL 473ML AL 6Px1",
+"c": 931,
+"h": 26.42178,
+"f": 0.02838
+},
+"14259": {
+"d": "PILSEN CALLAO LATA 473 6X1.",
+"c": 1635,
+"h": 46.4013,
+"f": 0.02838
+},
+"9523": {
+"d": "CUSQ TRIGO 355ML AL 6P",
+"c": 379,
+"h": 8.0727,
+"f": 0.0213
+},
+"3375": {
+"d": "PILSEN CALLAO 355ML AL 12X1 VERDE.",
+"c": 740,
+"h": 31.524,
+"f": 0.0426
+},
+"4411": {
+"d": "PILSEN CALLAO 355ML AL 6PX1.",
+"c": 720,
+"h": 15.336,
+"f": 0.0213
+},
+"20412": {
+"d": "CORONA EXTRA 330ML NR 6P H",
+"c": 700,
+"h": 13.86,
+"f": 0.0198
+},
+"20750": {
+"d": "MIKES HARD LEMONADE 355 ML SLK 6P",
+"c": 467,
+"h": 9.9471,
+"f": 0.0213
+},
+"21863": {
+"d": "MIKES ARANDANOS 355ML AL 6P",
+"c": 290,
+"h": 6.177,
+"f": 0.0213
+},
+"22654": {
+"d": "MIKES APPLE 355ML AL 6P",
+"c": 231,
+"h": 4.9203,
+"f": 0.0213
+},
+"23116": {
+"d": "CUSQUEÑA DORADA 355ML AL 6P NI25",
+"c": 50,
+"h": 1.065,
+"f": 0.0213
+},
+"21592": {
+"d": "BUDWEISER 355ML 6X1 SLK",
+"c": 364,
+"h": 7.7532,
+"f": 0.0213
+},
+"15972": {
+"d": "PILSEN CALLAO TERMO 305ML NR 6X1",
+"c": 214,
+"h": 3.9162,
+"f": 0.0183
+},
+"2969": {
+"d": "CRISTAL 355ML AL 12X1",
+"c": 74,
+"h": 3.1524,
+"f": 0.0426
+},
+"11112": {
+"d": "GUARANA 3010ML PET 4X1 RA.",
+"c": 1806,
+"h": 217.4424,
+"f": 0.1204
+},
+"11118": {
+"d": "GUARANA 450ML PET 15X1 RA.",
+"c": 1716,
+"h": 115.83,
+"f": 0.0675
+},
+"11115": {
+"d": "GUARANA 2000ML PET 6X1 RA",
+"c": 583,
+"h": 69.96,
+"f": 0.12
+},
+"11116": {
+"d": "GUARANA 1000ML PET 6X1 RA",
+"c": 168,
+"h": 10.08,
+"f": 0.06
+},
+"20834": {
+"d": "CUSQUEÑA TRIGO 473ML 6X1",
+"c": 1046,
+"h": 29.68548,
+"f": 0.02838
+},
+"4407": {
+"d": "CRISTAL 355ML AL 6Px1.",
+"c": 160,
+"h": 3.408,
+"f": 0.0213
+},
+"22600": {
+"d": "CUSQUEÑA CERO 310ML 6P NR",
+"c": 34,
+"h": 0.6324,
+"f": 0.0186
+},
+"21929": {
+"d": "CUSQUEÑA QUINUA 473ML AL 6P",
+"c": 81,
+"h": 2.29878,
+"f": 0.02838
+},
+"23089": {
+"d": "CORONA EXTRA 473ML AL 6P",
+"c": 69,
+"h": 1.95822,
+"f": 0.02838
+},
+"23259": {
+"d": "CUSQUEÑA DORADA 473ML AL 6P NI25",
+"c": 47,
+"h": 1.33386,
+"f": 0.02838
+},
+"22740": {
+"d": "FLYING FISH 355ML AL 6P",
+"c": 134,
+"h": 0,
+"f": 0.0
+},
+"15514": {
+"d": "CUSQ NEGRA 310ML NR-CT 6P",
+"c": 60,
+"h": 1.116,
+"f": 0.0186
+},
+"15513": {
+"d": "CUSQ TRIGO 310ML NR-CT 6P",
+"c": 208,
+"h": 3.8688,
+"f": 0.0186
+},
+"13113": {
+"d": "GOLDEN 473ML LATA AL 6X1",
+"c": 501,
+"h": 14.21838,
+"f": 0.02838
+},
+"23380": {
+"d": "MIKES HARD MANGO HOT 355ML SLK 6P",
+"c": 31,
+"h": 0.6603,
+"f": 0.0213
+},
+"22576": {
+"d": "CUSQUEÑA CERO TRIGO SLEEK 355ML 6P",
+"c": 53,
+"h": 1.1289,
+"f": 0.0213
+},
+"20323": {
+"d": "PILSEN CALLAO 355ML AL 8P",
+"c": 134,
+"h": 3.3299,
+"f": 0.02485
+},
+"23225": {
+"d": "CUSQUEÑA DORADA 310ML NRCT 6P",
+"c": 21,
+"h": 0.3906,
+"f": 0.0186
+},
+"2821": {
+"d": "PILSEN CALLAO 630ML RT 12 CP",
+"c": 4427,
+"h": 334.6812,
+"f": 0.0756
+},
+"15048": {
+"d": "Ron Cartavio Black 250ml 1x1",
+"c": 70,
+"h": 0.175,
+"f": 0.0025
+},
+"1564": {
+"d": "CRISTAL 650ML RT 12 CP.",
+"c": 268,
+"h": 20.904,
+"f": 0.078
+},
+"21033": {
+"d": "PILSEN CALLAO 473ML 6X1 VERANO",
+"c": 5955,
+"h": 169.0029,
+"f": 0.02838
+},
+"20460": {
+"d": "Chiclets Menta 2.8gr 100x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"22647": {
+"d": "GUARANA 300ML PET 15X1 PRECIO",
+"c": 2032,
+"h": 91.44,
+"f": 0.045
+},
+"16503": {
+"d": "Four Loko Purple 473ml 6x1",
+"c": 8,
+"h": 0.22704,
+"f": 0.02838
+},
+"16502": {
+"d": "Four Loko Sandia 473ml 6x1",
+"c": 7,
+"h": 0.19866,
+"f": 0.02838
+},
+"16499": {
+"d": "Four Loko Gold 473ml 6x1",
+"c": 5,
+"h": 0.1419,
+"f": 0.02838
+},
+"22375": {
+"d": "Four Loko White 473ml 6x1",
+"c": 3,
+"h": 0,
+"f": 0.0
+},
+"16639": {
+"d": "MALTIN POWER RA 330 12X1",
+"c": 294,
+"h": 11.6424,
+"f": 0.0396
+},
+"21016": {
+"d": "Four Loko Maracuya 473ml 6x1",
+"c": 3,
+"h": 0,
+"f": 0.0
+},
+"6843": {
+"d": "CUSQ TRIGO 620ML RT 12P",
+"c": 1615,
+"h": 120.156,
+"f": 0.0744
+},
+"15421": {
+"d": "PILSEN CALLAO 305ML RT 24X1",
+"c": 189,
+"h": 13.8348,
+"f": 0.0732
+},
+"22196": {
+"d": "CUSQUEÑA NEGRA 473ML AL 6P",
+"c": 90,
+"h": 2.5542,
+"f": 0.02838
+},
+"14663": {
+"d": "PILSEN CALLAO RB 1000L HUACHIPA 12X1.",
+"c": 786,
+"h": 94.32,
+"f": 0.12
+},
+"6842": {
+"d": "CUSQ NEGRA 620ML RT 12P",
+"c": 91,
+"h": 6.7704,
+"f": 0.0744
+},
+"21266": {
+"d": "MIKES MARACUYA 355ML 6X1",
+"c": 58,
+"h": 1.2354,
+"f": 0.0213
+},
+"21533": {
+"d": "MIKES FRESA 355ML 6X1",
+"c": 32,
+"h": 0.6816,
+"f": 0.0213
+},
+"18891": {
+"d": "Florida Filete de Atun 140g 6x1",
+"c": 4,
+"h": 0.0336,
+"f": 0.0084
+},
+"21253": {
+"d": "Florida Trozos Atun Vegetal 140g 6x1",
+"c": 6,
+"h": 0,
+"f": 0.0
+},
+"23037": {
+"d": "Loa Agua Saborizada Manzana 625ml 15x1",
+"c": 1,
+"h": 0.09375,
+"f": 0.09375
+},
+"20339": {
+"d": "Cafetal Selecto 200gr 1x1",
+"c": 5,
+"h": 0.01,
+"f": 0.002
+},
+"22442": {
+"d": "Cielo Agua de Mesa sin Gas 625ml 15x1",
+"c": 643,
+"h": 0,
+"f": 0.0
+},
+"15969": {
+"d": "CUSQ NEGRA 310ML NR-TM 6P",
+"c": 84,
+"h": 1.5624,
+"f": 0.0186
+},
+"17322": {
+"d": "Inka Cola 3lts 4x1",
+"c": 12,
+"h": 1.44,
+"f": 0.12
+},
+"22786": {
+"d": "PO Oreo Rollo Galleta 108gr 5x1",
+"c": 22,
+"h": 1.5e-05,
+"f": 7e-07
+},
+"17321": {
+"d": "Coca Cola 3lts 4x1",
+"c": 13,
+"h": 1.56,
+"f": 0.12
+},
+"19996": {
+"d": "Marinero Trozos Atun 140gr 6x1",
+"c": 7,
+"h": 0.0714,
+"f": 0.0102
+},
+"8977": {
+"d": "CRISTAL 1000ML RT 12 CP-HUACHIPA.",
+"c": 289,
+"h": 34.68,
+"f": 0.12
+},
+"22501": {
+"d": "Cielo Agua de Mesa sin Gas 2.5L 6x1",
+"c": 457,
+"h": 68.55,
+"f": 0.15
+},
+"22443": {
+"d": "Cielo Agua de Mesa sin Gas 1L 12x1",
+"c": 896,
+"h": 107.52,
+"f": 0.12
+},
+"16522": {
+"d": "Tabernero Borgona Semiseco 750ml 1x1",
+"c": 67,
+"h": 0.5025,
+"f": 0.0075
+},
+"13652": {
+"d": "PILSEN CALLAO LTA 269ML AL 6X1.",
+"c": 19,
+"h": 0.30666,
+"f": 0.01614
+},
+"21589": {
+"d": "CORONA CERO 355ML 6X1 H",
+"c": 36,
+"h": 3.0672,
+"f": 0.0852
+},
+"23139": {
+"d": "CUSQUEÑA DORADA 310ML NRTM 6P NI25",
+"c": 66,
+"h": 1.2276,
+"f": 0.0186
+},
+"22951": {
+"d": "Electrolight Naranja 475ml 12x1",
+"c": 1,
+"h": 0.057,
+"f": 0.057
+},
+"15970": {
+"d": "CUSQ TRIGO 310ML NR-TM 6P",
+"c": 24,
+"h": 0.4464,
+"f": 0.0186
+},
+"23335": {
+"d": "GUARANA FRESA 300ML 15X1",
+"c": 53,
+"h": 2.385,
+"f": 0.045
+},
+"15419": {
+"d": "CUSQ TRIGO 310ML RT 24P",
+"c": 33,
+"h": 2.4552,
+"f": 0.0744
+},
+"19879": {
+"d": "Kraft Macaroni & Cheese Orig. 206gr 1x1",
+"c": 9,
+"h": 0,
+"f": 0.0
+},
+"22710": {
+"d": "KR Gaseosa Piña 350ml 15x1",
+"c": 1,
+"h": 0.0525,
+"f": 0.0525
+},
+"22713": {
+"d": "KR Gaseosa Naranja 350ml 15x1",
+"c": 2,
+"h": 0.105,
+"f": 0.0525
+},
+"22714": {
+"d": "KR Gaseosa Fresa 350ml 15x1",
+"c": 1,
+"h": 0.0525,
+"f": 0.0525
+},
+"22842": {
+"d": "Tabernero Espumante Especial 750ml 1x1",
+"c": 12,
+"h": 0,
+"f": 0.0
+},
+"19239": {
+"d": "Pall Mall Click On 20und 1x1",
+"c": 19,
+"h": 0,
+"f": 0.0
+},
+"21974": {
+"d": "PO Pall Mall Boost XL 10 und 2x1",
+"c": 13,
+"h": 0,
+"f": 0.0
+},
+"20534": {
+"d": "Morochas Galleta 30gr 12x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"16168": {
+"d": "PO Galleta Oreo 36gr 12x1",
+"c": 3,
+"h": 0.028696,
+"f": 0.0095652
+},
+"23272": {
+"d": "Nescafe Tradición 14g 10x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"23170": {
+"d": "Lucky Strike Eclipse XL 20un 1x1",
+"c": 11,
+"h": 0,
+"f": 0.0
+},
+"23168": {
+"d": "Tabenero Tuyo Borgoña Lata 310 ml 2x1",
+"c": 3,
+"h": 0.0186,
+"f": 0.0062
+},
+"23307": {
+"d": "GUARANÁ PIÑA 450ML 15X1",
+"c": 11,
+"h": 0.7425,
+"f": 0.0675
+},
+"23308": {
+"d": "GUARANÁ PIÑA 1000ML 6X1",
+"c": 11,
+"h": 0.7425,
+"f": 0.0675
+},
+"17314": {
+"d": "Coca Cola 600ml 12x1",
+"c": 9,
+"h": 0.648,
+"f": 0.072
+},
+"23575": {
+"d": "Sal de Andrews Triple Accion 7.9 gr 30x1",
+"c": 3,
+"h": 0,
+"f": 0.0
+},
+"18404": {
+"d": "Lucky Strike Twist Reshape 20UN 1x1N",
+"c": 18,
+"h": 0,
+"f": 0.0
+},
+"16203": {
+"d": "Vino Viña Vieja Rose 750ml 1x1",
+"c": 3,
+"h": 0.0225,
+"f": 0.0075
+},
+"22759": {
+"d": "Tabernero Rosé Selección 750ml 1x1",
+"c": 13,
+"h": 0,
+"f": 0.0
+},
+"21645": {
+"d": "PO Fanny Filete Atun Aceit Veg 140gr 2x1",
+"c": 2,
+"h": 0,
+"f": 0.0
+},
+"21504": {
+"d": "MIKES MARACUYA 355ML 4P",
+"c": 139,
+"h": 1.9738,
+"f": 0.0142
+},
+"22602": {
+"d": "GUARANA PIÑA 300ML PET 15X1 RA",
+"c": 16,
+"h": 0,
+"f": 0.0
+},
+"15647": {
+"d": "Johnnie Walker Red Label 750ml 1x1",
+"c": 15,
+"h": 0.1125,
+"f": 0.0075
+},
+"22727": {
+"d": "Whisky Old Times Apple Rush 750ml 1x1",
+"c": 2,
+"h": 0,
+"f": 0.0
+},
+"17780": {
+"d": "Pall Mall Sunset XL 20UN 1x1",
+"c": 13,
+"h": 0,
+"f": 0.0
+},
+"19238": {
+"d": "Pall Mall Boost 20und 1x1",
+"c": 8,
+"h": 0,
+"f": 0.0
+},
+"23145": {
+"d": "Tabernero Borgoña Tuyo 750 ML 1X1",
+"c": 6,
+"h": 0.042,
+"f": 0.007
+},
+"23330": {
+"d": "La Botija Quebranta 250 ml 1X1",
+"c": 6,
+"h": 0,
+"f": 0.0
+},
+"23720": {
+"d": "Swipe Vino Rose RTD 355ML 6x1",
+"c": 1,
+"h": 0.0213,
+"f": 0.0213
+},
+"19022": {
+"d": "Cartavio Ron Black 125ml 1x1",
+"c": 47,
+"h": 0.05875,
+"f": 0.00125
+},
+"23146": {
+"d": "Tabernero Rose Tuyo 750 ML 1X1",
+"c": 1,
+"h": 0.0075,
+"f": 0.0075
+},
+"18406": {
+"d": "Lucky Strike Wild Reshape 20UN 1x1N",
+"c": 21,
+"h": 0,
+"f": 0.0
+},
+"15847": {
+"d": "Salsa Tomate Pomarola 145gr N 6X1",
+"c": 1,
+"h": 0.00402,
+"f": 0.00402
+},
+"16016": {
+"d": "Chilcano Bar Maracuya 275ml 1x1",
+"c": 46,
+"h": 0.1265,
+"f": 0.00275
+},
+"16013": {
+"d": "Pisco Sour Tabernero Maracuya 700ml 1x1",
+"c": 12,
+"h": 0.084,
+"f": 0.007
+},
+"23160": {
+"d": "Tabernero Sour Piña Colada 700ML 1x1",
+"c": 12,
+"h": 0.084,
+"f": 0.007
+},
+"16504": {
+"d": "Four Loko Ponche 473ml 6x1",
+"c": 2,
+"h": 0.05676,
+"f": 0.02838
+},
+"23625": {
+"d": "Chilcano Limón lata 310 ml 6x1",
+"c": 6,
+"h": 0.1116,
+"f": 0.0186
+},
+"23230": {
+"d": "PILSEN CALLAO FRESH 305ML NRTM 6P",
+"c": 2,
+"h": 0.0366,
+"f": 0.0183
+},
+"15506": {
+"d": "Vino Borgoña Queirolo 750ml 1x1",
+"c": 111,
+"h": 0.8325,
+"f": 0.0075
+},
+"15508": {
+"d": "Vino Rosé Queirolo 750ml 1x1",
+"c": 128,
+"h": 0.96,
+"f": 0.0075
+},
+"15305": {
+"d": "Ron Cartavio Blanco 250ml 1x1",
+"c": 9,
+"h": 0.0225,
+"f": 0.0025
+},
+"18162": {
+"d": "Piscano Maracuya 275ml6x1",
+"c": 21,
+"h": 0.3465,
+"f": 0.0165
+},
+"16233": {
+"d": "Red Bull Regular 250ml 4x1",
+"c": 6,
+"h": 0.06,
+"f": 0.01
+},
+"22446": {
+"d": "KR Gaseosa Cola Negra 3L 4x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"22728": {
+"d": "Maniak Mango Rush 500ml 4x1",
+"c": 4,
+"h": 0.08,
+"f": 0.02
+},
+"22787": {
+"d": "PO Ritz Taco 70g 4x1",
+"c": 13,
+"h": 9e-06,
+"f": 7e-07
+},
+"15843": {
+"d": "Florida Grated de Atun 140gr 6x1",
+"c": 22,
+"h": 0.360941,
+"f": 0.0164064
+},
+"22949": {
+"d": "Electrolight Fresa 475ml 12x1",
+"c": 3,
+"h": 0.171,
+"f": 0.057
+},
+"17315": {
+"d": "Inka Cola 600ml 12x1",
+"c": 7,
+"h": 0.504,
+"f": 0.072
+},
+"20535": {
+"d": "Donofrio Paneton Bolsa 880gr 1x1",
+"c": 16,
+"h": 0,
+"f": 0.0
+},
+"16171": {
+"d": "Trident Sandia 8g 18x1",
+"c": 1,
+"h": 0.005485,
+"f": 0.0054846
+},
+"16173": {
+"d": "Halls Cherry 25.2gr 12x1",
+"c": 4,
+"h": 0.043886,
+"f": 0.0109716
+},
+"15845": {
+"d": "Avena 3 Ositos Clasica 100g 12x1",
+"c": 1,
+"h": 0.09552,
+"f": 0.09552
+},
+"23304": {
+"d": "Filete de Atun Florida en Agua 140gr 6x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"14977": {
+"d": "Ron Cartavio Superior 750ml 1x1",
+"c": 14,
+"h": 0.105,
+"f": 0.0075
+},
+"16523": {
+"d": "Tabernero Rose Semiseco 750ml 1x1",
+"c": 31,
+"h": 0.2325,
+"f": 0.0075
+},
+"17502": {
+"d": "PO Club Social Regular 26gr 12x1",
+"c": 4,
+"h": 0.00624,
+"f": 0.00156
+},
+"22396": {
+"d": "Ritz Sandwich Queso 30g 18x1",
+"c": 3,
+"h": 0,
+"f": 0.0
+},
+"21190": {
+"d": "PO Picaras Clasicas 38gr 16x1",
+"c": 4,
+"h": 0,
+"f": 0.0
+},
+"19685": {
+"d": "Picaras Mini Clasica 46gr 6x1",
+"c": 5,
+"h": 0.0138,
+"f": 0.00276
+},
+"15283": {
+"d": "Ron Flor de Cana 4 Años 750ml 1x1",
+"c": 11,
+"h": 0.0825,
+"f": 0.0075
+},
+"23271": {
+"d": "Travesuras 47.6g 9x1",
+"c": 2,
+"h": 0,
+"f": 0.0
+},
+"19413": {
+"d": "Lucky Strike Blue 20und 1x1",
+"c": 2,
+"h": 0,
+"f": 0.0
+},
+"20450": {
+"d": "Sporade Tropical 500ml 12x1",
+"c": 14,
+"h": 0.84,
+"f": 0.06
+},
+"21975": {
+"d": "Hamilton Blue 20 und 1x1",
+"c": 5,
+"h": 0,
+"f": 0.0
+},
+"20049": {
+"d": "Marco Polo Spaghetti 450gr 20x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"14203": {
+"d": "CRISTALINA 500ML PET 15X1",
+"c": 13,
+"h": 0.975,
+"f": 0.075
+},
+"18167": {
+"d": "Piscano Surtido 275ml6x1",
+"c": 8,
+"h": 0.132,
+"f": 0.0165
+},
+"16627": {
+"d": "Cartavio Hit Pina Colada 355ml 1x1",
+"c": 6,
+"h": 0.0213,
+"f": 0.00355
+},
+"23226": {
+"d": "Lucky Strike Double Chill XL 20un 1x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"21931": {
+"d": "Nestle Triangulo Clasico 29g 20x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"21971": {
+"d": "Todi Paneton Bolsa 900g+Todinnito 85g1x1",
+"c": 2,
+"h": 0,
+"f": 0.0
+},
+"22715": {
+"d": "Gaseosa Oro Cola Amarilla 350ml 15x1",
+"c": 1,
+"h": 0.0525,
+"f": 0.0525
+},
+"20075": {
+"d": "PO Ritz Plain Galleta 22.4gr 18x1",
+"c": 1,
+"h": 0.00132,
+"f": 0.00132
+},
+"20451": {
+"d": "Volt 300ml 12x1",
+"c": 1,
+"h": 0.036,
+"f": 0.036
+},
+"16164": {
+"d": "Chocosoda 36GR 6x1",
+"c": 3,
+"h": 0.00648,
+"f": 0.00216
+},
+"21638": {
+"d": "Wafer Nik Fresa 72gr 6x1",
+"c": 2,
+"h": 0,
+"f": 0.0
+},
+"16167": {
+"d": "PO Galleta Vainilla Field 37gr 12x1",
+"c": 6,
+"h": 0.080402,
+"f": 0.0134004
+},
+"22250": {
+"d": "Field Cream Cracker 258g 2x1",
+"c": 2,
+"h": 0,
+"f": 0.0
+},
+"16884": {
+"d": "Tabernero Borgona Seleccion 750ml 1x1",
+"c": 4,
+"h": 0,
+"f": 0.0
+},
+"15507": {
+"d": "Vino Magdalena Queirolo 750ml 1x1",
+"c": 25,
+"h": 0.1875,
+"f": 0.0075
+},
+"22454": {
+"d": "KR Gaseosa Cola Negra 350ml 15x1",
+"c": 8,
+"h": 0.42,
+"f": 0.0525
+},
+"15505": {
+"d": "Pisco Queirolo Quebranta 750ml 1x1",
+"c": 5,
+"h": 0.0375,
+"f": 0.0075
+},
+"15281": {
+"d": "Ron Cartavio Black 750ml 1x1",
+"c": 16,
+"h": 0.12,
+"f": 0.0075
+},
+"16501": {
+"d": "Four Loko Green 473ml 6x1",
+"c": 1,
+"h": 0.02838,
+"f": 0.02838
+},
+"15504": {
+"d": "Pisco Queirolo Acholado 750ml 1x1",
+"c": 4,
+"h": 0.03,
+"f": 0.0075
+},
+"22628": {
+"d": "GUARANA PIÑA 3010ML PET 4P",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"17764": {
+"d": "Smirnoff Green Apple 700ml 1x1",
+"c": 3,
+"h": 0.021,
+"f": 0.007
+},
+"16011": {
+"d": "Sangria Tabernero Tetrapack 1lt  1x1",
+"c": 12,
+"h": 0.12,
+"f": 0.01
+},
+"19237": {
+"d": "Lucky Strike Fresh 20und 1x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"7710": {
+"d": "BUDWEISER 600ML RT 12 CP",
+"c": 11,
+"h": 0,
+"f": 0.0
+},
+"23147": {
+"d": "Vino Panal Borgona 750ml 1X1",
+"c": 6,
+"h": 0,
+"f": 0.0
+},
+"16174": {
+"d": "Halls Menthol 25GR 12x1",
+"c": 4,
+"h": 0.043886,
+"f": 0.0109716
+},
+"18401": {
+"d": "Lucky Strike Crush Reshape 20UN 1x1N",
+"c": 5,
+"h": 0,
+"f": 0.0
+},
+"21520": {
+"d": "Trident 4S Mora 5.2G 40x1",
+"c": 2,
+"h": 0,
+"f": 0.0
+},
+"21637": {
+"d": "PO Chocman Chocolate 33.5gr 12x1",
+"c": 2,
+"h": 0,
+"f": 0.0
+},
+"18372": {
+"d": "RedBull 250ml 24x1",
+"c": 1,
+"h": 0.06,
+"f": 0.06
+},
+"19327": {
+"d": "Jabon Protex Fresh 110gr 6x1",
+"c": 5,
+"h": 0.033,
+"f": 0.0066
+},
+"22952": {
+"d": "Electrolight Mora 475ml 12x1",
+"c": 1,
+"h": 0.057,
+"f": 0.057
+},
+"23036": {
+"d": "Loa Agua Saborizada Piña 625ml 15x1",
+"c": 1,
+"h": 0.09375,
+"f": 0.09375
+},
+"22942": {
+"d": "Piscano Sour Mango 700ml 1x1",
+"c": 1,
+"h": 0.007,
+"f": 0.007
+},
+"17637": {
+"d": "Ron Cartavio BlackBarrel 3 años 750M 1x1",
+"c": 6,
+"h": 0.045,
+"f": 0.0075
+},
+"16172": {
+"d": "Halls Extra Fuerte 25GR 12x1",
+"c": 2,
+"h": 0.021943,
+"f": 0.0109716
+},
+"17516": {
+"d": "Cartavio Superior 250ml 1x1",
+"c": 12,
+"h": 0.03,
+"f": 0.0025
+},
+"23547": {
+"d": "Mentos Frutas 29.04 gr 14x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"22837": {
+"d": "Maniak Surtido 500ml 6x1",
+"c": 1,
+"h": 0.03,
+"f": 0.03
+},
+"22932": {
+"d": "Compass Duraznos Mitades 820g 2x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"17498": {
+"d": "Protex Jabon Avena 110gr 6x1",
+"c": 1,
+"h": 0.013598,
+"f": 0.0135978
+},
+"16500": {
+"d": "Four Loko Blue 473ml 6x1",
+"c": 5,
+"h": 0.1419,
+"f": 0.02838
+},
+"17362": {
+"d": "Gatorade Tropical Fruit 500ml 12x1",
+"c": 1,
+"h": 0.06,
+"f": 0.06
+},
+"15853": {
+"d": "Pisco Puro Vargas 750ml 1x1",
+"c": 3,
+"h": 0.0225,
+"f": 0.0075
+},
+"23509": {
+"d": "Halls Menthol 3gr 100x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"18405": {
+"d": "Lucky Strike Wild Reshape 10UN 1x1N",
+"c": 2,
+"h": 0,
+"f": 0.0
+},
+"18403": {
+"d": "Lucky Strike Twist Reshape 10UN 1x1N",
+"c": 2,
+"h": 0,
+"f": 0.0
+},
+"16170": {
+"d": "Trident Menta 8.5GR 18x1",
+"c": 1,
+"h": 0.005485,
+"f": 0.0054846
+},
+"22937": {
+"d": "Lucky Strike Crush Reshape 10un 1x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"17359": {
+"d": "Halls Mora 25gr 12x1",
+"c": 2,
+"h": 0.021943,
+"f": 0.0109716
+},
+"17400": {
+"d": "Ambrosoli Caramelos Mentitas 19g 24x1",
+"c": 1,
+"h": 0.02525,
+"f": 0.0252504
+},
+"22453": {
+"d": "Kero Aloe Piña 300ml 12x1",
+"c": 3,
+"h": 0.108,
+"f": 0.036
+},
+"21639": {
+"d": "Wafer Nik Chocolate 72gr 6x1",
+"c": 1,
+"h": 0.00432,
+"f": 0.00432
+},
+"15935": {
+"d": "Whisky Old Times Red 1Lt 1x1",
+"c": 6,
+"h": 0.06,
+"f": 0.01
+},
+"23383": {
+"d": "PILSEN CALLAO FRESH 355ML AL 6P N",
+"c": 1,
+"h": 0,
+"f": 0.0
+},
+"19718": {
+"d": "CRISTAL 305ML RT 24X1",
+"c": 10,
+"h": 0.732,
+"f": 0.0732
+},
+"22452": {
+"d": "Kero Aloe Uva 300ml 12x1",
+"c": 1,
+"h": 0.036,
+"f": 0.036
+},
+"22712": {
+"d": "KR Gaseosa Limón 350ml 15x1",
+"c": 1,
+"h": 0,
+"f": 0.0
+}
+},
+"actualizado": "2026-11-03T14:52:00Z"
+}

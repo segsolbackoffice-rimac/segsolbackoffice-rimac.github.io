@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calculadora de HL por producto</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2433;--mute:#667085;--line:#e3e6eb;--acc:#b8860b;--acc2:#8a6408;--ok:#1f7a4d;--bad:#b42318;--soft:#fff8e6}
+@media (prefers-color-scheme:dark){:root{--bg:#14161a;--card:#1d2026;--ink:#e8eaed;--mute:#9aa1ad;--line:#2e323a;--acc:#e0b040;--acc2:#f0c860;--ok:#4cc38a;--bad:#f97066;--soft:#2a2516}}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{padding:18px 16px 6px;max-width:1100px;margin:auto}
+h1{font-size:20px;margin:0 0 2px}
+header p{margin:0;color:var(--mute);font-size:13px}
+nav{display:flex;gap:6px;max-width:1100px;margin:10px auto 0;padding:0 16px;flex-wrap:wrap}
+nav button{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:9px 14px;border-radius:999px;font-weight:600;cursor:pointer}
+nav button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+main{max-width:1100px;margin:auto;padding:12px 16px 60px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.card h2{font-size:16px;margin:0 0 8px}
+.hint{color:var(--mute);font-size:13px;margin:4px 0 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+label{display:block;font-size:12px;color:var(--mute);font-weight:600;margin-bottom:3px}
+select,input[type=text],input[type=number],textarea{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:60px}
+.btn{border:0;background:var(--acc);color:#fff;padding:9px 14px;border-radius:8px;font-weight:600;cursor:pointer;font:inherit;font-weight:600}
+.btn.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn:disabled{opacity:.45;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:16px;text-align:center;color:var(--mute);cursor:pointer}
+.drop.over{border-color:var(--acc);background:var(--soft)}
+.drop b{color:var(--ink)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.kpi .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.kpi .l{font-size:12px;color:var(--mute)}
+.kpi.warn .v{color:var(--bad)}
+.tw{overflow:auto;max-height:480px;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{position:sticky;top:0;background:var(--card);font-size:12px;color:var(--mute);cursor:pointer;user-select:none}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.tot td{font-weight:700;background:var(--soft)}
+tr.miss td{color:var(--bad)}
+td input{width:90px;padding:4px 6px}
+.tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:999px;background:var(--soft);color:var(--acc2);font-weight:700}
+.msg{font-size:13px;margin-top:8px}
+.msg.ok{color:var(--ok)}.msg.bad{color:var(--bad)}
+.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.subtabs button{border:1px solid var(--line);background:transparent;color:var(--ink);padding:6px 10px;border-radius:8px;cursor:pointer;font-size:13px}
+.subtabs button.on{border-color:var(--acc);color:var(--acc2);font-weight:700}
+.hide{display:none!important}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:13px;opacity:0;transition:.2s;pointer-events:none}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>Calculadora de HL por producto</h1>
+  <p>Aprende cuántos HL tiene cada caja por código de producto y los aplica a los Excel que no traen HL.</p>
+</header>
+<nav>
+  <button data-tab="calc" class="on">1 · Calcular HL</button>
+  <button data-tab="learn">2 · Aprender factores</button>
+  <button data-tab="table">3 · Tabla de factores <span id="nfac" class="tag">0</span></button>
+</nav>
+<main>
+
+<!-- ============ CALCULAR ============ -->
+<section id="tab-calc">
+  <div class="card">
+    <h2>Subir Excel sin HL</h2>
+    <p class="hint">Debe tener al menos el código de producto y las cajas. Si trae fecha, empresa y cliente, se arman los totales por cada uno.</p>
+    <div class="drop" id="dropCalc"><b>Toca o arrastra el Excel aquí</b><br><span id="fileCalc">.xlsx, .xls o .csv</span></div>
+    <input type="file" id="inCalc" accept=".xlsx,.xls,.xlsm,.csv" class="hide">
+    <div id="mapCalc" class="hide">
+      <div class="grid" style="margin-top:12px">
+        <div><label>Hoja</label><select id="cSheet"></select></div>
+        <div><label>Código producto *</label><select id="cCod"></select></div>
+        <div><label>Cajas *</label><select id="cCaj"></select></div>
+        <div><label>Fecha</label><select id="cFec"></select></div>
+        <div><label>Empresa</label><select id="cEmp"></select></div>
+        <div><label>Cód. cliente</label><select id="cCli"></select></div>
+        <div><label>Nombre cliente</label><select id="cNom"></select></div>
+        <div><label>Descripción producto</label><select id="cDes"></select></div>
+        <div><label>Ruta / placa</label><select id="cRut"></select></div>
+        <div><label>HL del archivo (si trae)</label><select id="cHl"></select></div>
+      </div>
+      <p class="hint" id="metaCalc"></p>
+      <div class="grid" style="margin-top:10px">
+        <div><label>Filtrar fecha</label><select id="fFec"></select></div>
+        <div><label>Filtrar empresa</label><select id="fEmp"></select></div>
+      </div>
+      <div style="margin-top:10px"><label>Solo estos clientes (opcional: pega los códigos, uno por línea o separados por coma)</label><textarea id="fCli" placeholder="Ej: 100234, 100567"></textarea></div>
+      <div class="row"><button class="btn" id="bCalc">Calcular HL</button>
+        <button class="btn sec hide" id="bLearnHere">Guardar los HL de este archivo como factores</button></div>
+      <div id="msgCalc" class="msg"></div>
+    </div>
+  </div>
+
+  <div id="resCalc" class="hide">
+    <div class="kpis" id="kpis"></div>
+    <div class="card">
+      <div class="subtabs" id="rtabs">
+        <button data-r="emp" class="on">Por empresa</button>
+        <button data-r="cli">Por cliente</button>
+        <button data-r="fec">Por fecha</button>
+        <button data-r="rut">Por ruta</button>
+        <button data-r="prod">Por producto</button>
+        <button data-r="miss">Sin factor</button>
+      </div>
+      <div class="tw" id="rTable"></div>
+      <div class="row">
+        <button class="btn sec" id="bCopy">Copiar tabla (para correo)</button>
+        <button class="btn sec" id="bDlCalc">Descargar Excel con resultados</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ APRENDER ============ -->
+<section id="tab-learn" class="hide">
+  <div class="card">
+    <h2>Subir Excel que sí trae HL</h2>
+    <p class="hint">Por cada código se calcula <b>HL ÷ cajas = HL por caja</b>. Ejemplo: 2 cajas con 10 HL → 5 HL por caja. Mientras más archivos subas, más fino queda el promedio.</p>
+    <div class="drop" id="dropLearn"><b>Toca o arrastra el Excel aquí</b><br><span id="fileLearn">.xlsx, .xls o .csv</span></div>
+    <input type="file" id="inLearn" accept=".xlsx,.xls,.xlsm,.csv" class="hide">
+    <div id="mapLearn" class="hide">
+      <div class="grid" style="margin-top:12px">
+        <div><label>Hoja</label><select id="lSheet"></select></div>
+        <div><label>Código producto *</label><select id="lCod"></select></div>
+        <div><label>Cajas *</label><select id="lCaj"></select></div>
+        <div><label>HL *</label><select id="lHl"></select></div>
+        <div><label>Descripción producto</label><select id="lDes"></select></div>
+      </div>
+      <div id="prevLearn" class="msg"></div>
+      <div class="row">
+        <button class="btn" id="bLearnAdd">Sumar al promedio</button>
+        <button class="btn sec" id="bLearnRep">Reemplazar factores de estos códigos</button>
+      </div>
+      <div id="msgLearn" class="msg"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TABLA ============ -->
+<section id="tab-table" class="hide">
+  <div class="card">
+    <h2>Factores guardados (HL por caja)</h2>
+    <p class="hint" id="storeInfo">Cargando…</p>
+    <div class="row" style="margin-top:0">
+      <input type="text" id="qFac" placeholder="Buscar código o descripción" style="max-width:320px">
+      <button class="btn sec" id="bAddFac">+ Agregar código</button>
+      <button class="btn sec" id="bDlFac">Descargar factores (Excel)</button>
+      <button class="btn sec" id="bImpFac">Importar factores</button>
+      <input type="file" id="inImpFac" accept=".xlsx,.xls,.csv,.json" class="hide">
+    </div>
+    <div class="tw" style="margin-top:10px" id="facTable"></div>
+    <div id="addFacBox" class="hide card" style="margin-top:10px">
+      <div class="grid">
+        <div><label>Código</label><input type="text" id="nfCod"></div>
+        <div><label>Descripción</label><input type="text" id="nfDes"></div>
+        <div><label>HL por caja</label><input type="number" step="any" id="nfFac"></div>
+      </div>
+      <div class="row"><button class="btn" id="bSaveFac">Guardar</button><button class="btn sec" id="bCancelFac">Cancelar</button></div>
+    </div>
+    <div class="row"><button class="btn sec" id="bClearFac" style="color:var(--bad)">Borrar todos los factores</button></div>
+    <div id="confirmClear" class="hide msg bad">¿Seguro? Esto borra toda la tabla. <button class="btn" id="bClearYes" style="background:var(--bad)">Sí, borrar</button> <button class="btn sec" id="bClearNo">No</button></div>
+  </div>
+</section>
+</main>
+<div id="toast"></div>
+
+<script>
+/* ---------- utilidades ---------- */
+const $ = id => document.getElementById(id);
+const norm = s => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+const keyCod = v => { let s = String(v ?? "").trim(); if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/,""); return s.replace(/^0+(?=\d)/,""); };
+function num(v){
+  if (v == null || v === "") return 0;
+  if (typeof v === "number") return isFinite(v) ? v : 0;
+  let s = String(v).trim().replace(/\s/g,"");
+  if (s.includes(",") && s.includes(".")) { s = s.lastIndexOf(",") > s.lastIndexOf(".") ? s.replace(/\./g,"").replace(",",".") : s.replace(/,/g,""); }
+  else if (s.includes(",")) s = s.replace(",",".");
+  const n = parseFloat(s); return isFinite(n) ? n : 0;
+}
+// número válido o null (para distinguir "#N/A" o vacío de un 0 real)
+function numOrNull(v){
+  if (typeof v === "number") return isFinite(v) ? v : null;
+  const s = String(v ?? "").trim(); if (!s || !/^[-+]?[\d.,\s]+$/.test(s)) return null;
+  return num(s);
+}
+// HL por caja estimado desde la descripción: unidades × ml ÷ 100 000 (ej. 6 × 473 ml = 0.02838 HL)
+function estFromDesc(d){
+  const s = String(d||"").toUpperCase().replace(/,/g,".");
+  let ml = null, m;
+  if ((m = /(\d+(?:\.\d+)?)\s*ML/.exec(s))) ml = +m[1];
+  else if ((m = /(\d+(?:\.\d+)?)\s*(?:LTS?|L)\b/.exec(s))) ml = +m[1]*1000;
+  else if ((m = /\b(\d{3,4})\b(?!\s*(?:G|GR|UN|UND|X)\b)/.exec(s)) && +m[1]>=150 && +m[1]<=3500) ml = +m[1]; // "620 RT 12", "MALTIN 330 12X1", "750 1x1"
+  let pk = null;
+  if ((m = /(\d+)\s*P?\s*X\s*\d+/.exec(s))) pk = +m[1];
+  else if ((m = /\b(\d+)\s*(?:P|PK|PACK|CP)\b/.exec(s))) pk = +m[1];
+  else if ((m = /\b(?:RT|RB)\s*(\d+)\b/.exec(s))) pk = +m[1];
+  if (ml && !pk && /(?:^|[^\d])1\s*X\s*1|ML\s*$|ML\s*X\s*1/.test(s)) pk = 1; // botellas sueltas
+  return ml && pk ? pk*ml/100000 : null;
+}
+// producto ya conocido con la descripción más parecida
+const STOP = new Set(["ml","al","x1","6x1","1x1","gr","g","pet","rt","ra","nr","n","h","lata","6p","12x1","15x1","de","la","el","po"]);
+const toks = d => new Set(norm(d).split(" ").filter(w => w && !/^\d/.test(w) && !STOP.has(w)));
+const brandOf = d => norm(d).split(" ").filter(w=>!["po","kr"].includes(w))[0] || "";
+function similar(code, d){
+  const a = toks(d); if (!a.size) return null;
+  let best = null, bs = 0;
+  for (const k in FAC){ if (k===code || !FAC[k].d) continue;
+    const b = toks(FAC[k].d); let inter = 0; a.forEach(w => { if (b.has(w)) inter++; });
+    let s = inter / (a.size + b.size - inter); if (brandOf(d) === brandOf(FAC[k].d)) s += 0.3;
+    if (s > bs){ bs = s; best = k; } }
+  if (!best || bs < 0.25) return null;
+  const brand = brandOf(d) === brandOf(FAC[best].d);
+  return {cod:best, d:FAC[best].d, f:FAC[best].f, s:bs, brand};
+}
+// sugerencia para un código sin factor:
+// 1) líquido (trae ml/L y unidades): fórmula unidades × ml ÷ 100 000, ajustada por un producto de la misma marca con HL > 0 (capta cajas de 4×6, etc.)
+// 2) sólido o sin datos: HL del producto más parecido
+function suggest(code, d){
+  const e = estFromDesc(d);
+  let bestB = null, bs = 0;
+  const a = toks(d), br = brandOf(d);
+  for (const k in FAC){ const x = FAC[k]; if (k===code || !x.d || !(x.f>0) || brandOf(x.d)!==br) continue;
+    const es = estFromDesc(x.d); if (!es) continue;
+    const b = toks(x.d); let inter=0; a.forEach(w=>{ if(b.has(w)) inter++; });
+    const sc = inter/(a.size+b.size-inter); if (sc > bs){ bs = sc; bestB = {k, f:x.f, es}; } }
+  if (e!=null){
+    if (bestB){ const r = bestB.f/bestB.es; const ratio = Math.abs(r-1)<0.02 ? 1 : r;
+      return {v: e*ratio, why: ratio===1 ? "fórmula (coincide con su marca)" : "fórmula × "+fmt(ratio,2)+" (como su marca)"}; }
+    return {v:e, why:"fórmula unidades × ml"};
+  }
+  const sm = similar(code, d);
+  if (sm) return {v: sm.f, why:"igual a producto parecido"};
+  return {v:null, why:"sin sugerencia"};
+}
+const fmt = (n,d=2) => Number(n||0).toLocaleString("es-PE",{minimumFractionDigits:d,maximumFractionDigits:d});
+const esc = s => String(s ?? "").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function fdate(v){
+  if (v instanceof Date && !isNaN(v)) { const d = new Date(v.getTime() + 12*3600e3); return String(d.getUTCDate()).padStart(2,"0")+"/"+String(d.getUTCMonth()+1).padStart(2,"0")+"/"+d.getUTCFullYear(); }
+  if (typeof v === "number" && v > 20000 && v < 80000) { const o = XLSX.SSF.parse_date_code(v); return String(o.d).padStart(2,"0")+"/"+String(o.m).padStart(2,"0")+"/"+o.y; }
+  return String(v ?? "").trim();
+}
+const dkey = s => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s); return m ? m[3]+m[2].padStart(2,"0")+m[1].padStart(2,"0") : s; };
+let toastT; function toast(t){ const e=$("toast"); e.textContent=t; e.classList.add("on"); clearTimeout(toastT); toastT=setTimeout(()=>e.classList.remove("on"),2600); }
+
+/* ---------- detección de columnas ---------- */
+const PATTERNS = {
+  cod: { good:["idmat","id mat","id material","cod producto","codigo producto","cod prod","cod articulo","codigo articulo","sku","id producto","idproducto","cod material","codigo material","codmat","cod mat","codprod","cod sap producto","codigo sap"], ok:["codigo","cod","item"], bad:["cli","client","ruta","vend","placa","viaje","postal","orden"] },
+  des: { good:["descripcion producto","desc producto","nombre producto","descripcion articulo","descripcion material","material"], ok:["descripcion","producto","articulo","desc"], bad:["cli","cod","codigo","sku","idmat","id mat","id material"] },
+  caj: { good:["cajas","caja","cjas","cjs","entrega","cant cajas","cantidad cajas","cj"], ok:["cantidad","cant","bultos","unidades","programado","qty"], bad:["hl","hecto","precio","importe","valor","monto"] },
+  ruta:{ good:["ruta","placa","viaje"], ok:["bk","unidad","camion","vehiculo"], bad:["cli","client"] },
+  hl:  { good:["hl","hls","hectolitros","hectolitro","hl entrega","hl programado","volumen hl"], ok:["volumen","hecto"], bad:["cod","precio"] },
+  fec: { good:["fechapla","fecha pla","fecha planificada","fecha entrega","fecha programada","fecha reparto","fecha"], ok:["fec","dia"], bad:[] },
+  emp: { good:["empresa","compania","distribuidora","sociedad"], ok:["cia","negocio","centro","bk","deposito","sede"], bad:["cli","client"] },
+  cli: { good:["idcli","id cli","cod cliente","codigo cliente","id cliente","cliente id","codcli","cod cli"], ok:["cliente","cli","pdv","cod pdv"], bad:["nombre","razon","producto","direccion"] },
+  nom: { good:["nombre cliente","razon social","nombre del cliente","cliente nombre","nombre comercial"], ok:["nombre","cliente","razon"], bad:["producto","cod","id","codigo","articulo"] },
+};
+function scoreHead(h, p){
+  const n = norm(h); if (!n) return 0;
+  const has = w => (" "+n+" ").includes(" "+w+" ") || n === w;
+  if (p.bad.some(w => n.includes(w)) && !p.good.some(has)) return 0;
+  if (p.good.some(w => n === w)) return 10;
+  if (p.good.some(has)) return 8;
+  if (p.ok.some(w => n === w)) return 6;
+  if (p.ok.some(has)) return 4;
+  return 0;
+}
+function guess(headers, kind, taken){
+  let best=-1, bs=0;
+  headers.forEach((h,i)=>{ if (taken.has(i)) return; const s = scoreHead(h, PATTERNS[kind]); if (s>bs){bs=s;best=i;} });
+  return best;
+}
+function findHeaderRow(rows){
+  let best=0, bs=-1;
+  for (let r=0; r<Math.min(rows.length,30); r++){
+    const row = rows[r]||[]; let s=0;
+    row.forEach(c => { for (const k in PATTERNS) if (scoreHead(c, PATTERNS[k])>=6) { s++; break; } });
+    const filled = row.filter(c => String(c??"").trim()!=="").length;
+    const sc = s*10 + Math.min(filled,10);
+    if (sc > bs){ bs=sc; best=r; }
+  }
+  return best;
+}
+
+/* ---------- lectura de Excel ---------- */
+async function readBook(file){
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, {type:"array", cellDates:true});
+  try{ await addPivotSheets(wb, buf); }catch(e){ console.warn("tabla dinámica:", e); }
+  return wb;
+}
+/* ---------- datos internos de tablas dinámicas ----------
+   Una tabla dinámica guarda TODOS los datos de origen (con Empresa, Placa, etc.) aunque no se vean.
+   Se leen y se aplican los mismos filtros de la tabla (ej. FechaPla = 28/10, TpMt = FERT). */
+const PIVOT_PREFIX = "★ Datos de la tabla dinámica";
+const xmlUnesc = s => s.replace(/&(lt|gt|quot|apos|amp|#\d+|#x[0-9a-f]+);/gi,(m,e)=> e==="lt"?"<":e==="gt"?">":e==="quot"?'"':e==="apos"?"'":e==="amp"?"&":String.fromCodePoint(e[1].toLowerCase()==="x"?parseInt(e.slice(2),16):parseInt(e.slice(1),10)));
+const relTarget = (base, t) => { if (t.startsWith("/")) return t.slice(1); const parts = base.split("/").slice(0,-1); t.split("/").forEach(x=>{ if(x==="..") parts.pop(); else if(x!==".") parts.push(x); }); return parts.join("/"); };
+async function readRels(zip, path){
+  const dir = path.split("/").slice(0,-1).join("/"), name = path.split("/").pop();
+  const f = zip.file(dir+"/_rels/"+name+".rels"); if (!f) return [];
+  const x = await f.async("string"); const out = [];
+  x.replace(/<Relationship\b[^>]*>/g, tag => { const t=/Target="([^"]*)"/.exec(tag), ty=/Type="([^"]*)"/.exec(tag), m=/TargetMode="External"/.test(tag);
+    if (t && !m) out.push({type: ty?ty[1]:"", target: relTarget(path, t[1])}); return tag; });
+  return out;
+}
+function cacheVal(tag, v){
+  if (tag==="m" || tag==="e" || v==null) return null;
+  if (tag==="n") return +v;
+  if (tag==="d") return new Date(v.endsWith("Z")?v:v+"Z");
+  if (tag==="b") return v==="1" || v==="true";
+  return xmlUnesc(v);
+}
+async function addPivotSheets(wb, buf){
+  if (typeof JSZip === "undefined") return;
+  const zip = await JSZip.loadAsync(buf);
+  const pts = Object.keys(zip.files).filter(n=>/^xl\/pivotTables\/pivotTable\d+\.xml$/.test(n)).sort();
+  const seen = new Set(); let n = 0;
+  for (const ptPath of pts){
+    const defPath = (await readRels(zip, ptPath)).map(r=>r.target).find(t=>/pivotCacheDefinition/.test(t));
+    if (!defPath || seen.has(defPath) || !zip.file(defPath)) continue; seen.add(defPath);
+    const recPath = (await readRels(zip, defPath)).map(r=>r.target).find(t=>/pivotCacheRecords/.test(t));
+    if (!recPath || !zip.file(recPath)) continue;
+    const dp = new DOMParser();
+    const def = dp.parseFromString(await zip.file(defPath).async("string"), "application/xml");
+    const cfs = [...def.getElementsByTagName("cacheField")];
+    const names = cfs.map(c=>c.getAttribute("name")||"");
+    const shared = cfs.map(c=>{ const si = c.getElementsByTagName("sharedItems")[0]; return si ? [...si.children].map(e=>cacheVal(e.tagName, e.getAttribute("v"))) : []; });
+    const pt = dp.parseFromString(await zip.file(ptPath).async("string"), "application/xml");
+    const pfs = [...(pt.getElementsByTagName("pivotFields")[0]||{children:[]}).children];
+    // filtros de página: un solo elemento elegido, o elementos ocultos
+    const filt = []; const filtTxt = [];
+    [...pt.getElementsByTagName("pageField")].forEach(pf=>{
+      const fld = +pf.getAttribute("fld"), it = pf.getAttribute("item");
+      const items = pfs[fld] ? [...pfs[fld].getElementsByTagName("item")] : [];
+      if (it!=null && items[+it] && items[+it].getAttribute("x")!=null){ const v = shared[fld][+items[+it].getAttribute("x")]; filt.push({fld, only:v}); filtTxt.push(names[fld]+" = "+(v instanceof Date?fdate(v):v)); }
+      else { const hid = new Set(items.filter(i=>i.getAttribute("h")==="1" && i.getAttribute("x")!=null).map(i=>+i.getAttribute("x")));
+        if (hid.size){ const vals = new Set([...hid].map(x=>shared[fld][x] instanceof Date ? +shared[fld][x] : shared[fld][x])); filt.push({fld, hide:vals}); filtTxt.push(names[fld]+" sin "+hid.size+" elemento(s) ocultos"); } }
+    });
+    const headers = names.slice();
+    [...pt.getElementsByTagName("dataField")].forEach(df=>{ const f = +df.getAttribute("fld"); const dn = (df.getAttribute("name")||"").trim(); if (dn && norm(dn)!==norm(names[f])) headers[f] = dn+" ("+names[f]+")"; });
+    // registros
+    const rx = await zip.file(recPath).async("string");
+    const rows = [headers]; let cur = null, i = 0, kept = 0, total = 0;
+    const re = /<r>|<\/r>|<r\/>|<([xnsmdbe])(?:\s+v="([^"]*)")?\s*\/>/g; let m;
+    while ((m = re.exec(rx))){
+      if (m[0]==="<r>"){ cur = []; i = 0; }
+      else if (m[0]==="</r>" || m[0]==="<r/>"){ if (cur){ total++;
+          const ok = filt.every(f=>{ const v = cur[f.fld]; const k = v instanceof Date ? +v : v;
+            return f.only!==undefined ? (f.only instanceof Date ? +f.only===k : f.only===v) : !f.hide.has(k); });
+          if (ok){ rows.push(cur); kept++; } } cur = null; }
+      else if (cur){ const tag = m[1]; cur.push(tag==="x" ? shared[i][+m[2]] ?? null : cacheVal(tag, m[2])); i++; }
+    }
+    if (!kept) continue;
+    const name = PIVOT_PREFIX + (pts.length>1 ? " "+(++n) : "");
+    wb.SheetNames.unshift(name);
+    wb.Sheets[name] = {__aoa: rows, __info: kept+" de "+total+" registros"+(filtTxt.length?" · filtros de la tabla: "+filtTxt.join(", "):"")};
+  }
+}
+function sheetData(wb, name){
+  const ws = wb.Sheets[name];
+  if (ws && ws.__aoa) return {headers: ws.__aoa[0].map((h,i)=> String(h??"").trim() || ("Columna "+(i+1))), data: ws.__aoa.slice(1), meta:{}, info: ws.__info};
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:""});
+  const hr = findHeaderRow(rows);
+  const headers = (rows[hr]||[]).map((h,i)=> String(h??"").trim() || ("Columna "+(i+1)));
+  const data = rows.slice(hr+1).filter(r => r.some(c => String(c??"").trim()!=="") && !r.some(c => /^total\b|\btotal$/i.test(String(c??"").trim())));
+  // filtros de tabla dinámica arriba del encabezado (ej. "FechaPla | 02/11/2026", "Empresa | (Todas)")
+  const meta = {};
+  rows.slice(0,hr).forEach(r=>{
+    const lab = norm(r[0]), val = r[1]; if (!lab || val==null || val==="") return;
+    const vs = String(val).trim(); if (/^\(/.test(vs)) return; // (Todas), (Varios elementos)
+    if (!meta.fecha && /fec/.test(lab)) meta.fecha = fdate(val);
+    else if (!meta.emp && /empresa|compania|distribuidora/.test(lab)) meta.emp = vs;
+  });
+  return {headers, data, meta};
+}
+function bestSheet(wb, kinds){
+  const pv = wb.SheetNames.find(n=>n.startsWith(PIVOT_PREFIX));
+  if (pv){ const {headers} = sheetData(wb,pv); const t=new Set(); if (kinds.every(k=>{ const i=guess(headers,k,t); if(i>=0) t.add(i); return i>=0; })) return pv; }
+  let best=wb.SheetNames[0], bs=-1;
+  wb.SheetNames.forEach(n=>{
+    const {headers, data} = sheetData(wb,n); const taken=new Set(); let s=0;
+    kinds.forEach(k=>{ const i=guess(headers,k,taken); if(i>=0){taken.add(i); s+=scoreHead(headers[i],PATTERNS[k]);} });
+    s += Math.min(data.length,1000)/1000;
+    if (s>bs){bs=s;best=n;}
+  });
+  return best;
+}
+function fillSelect(sel, headers, idx, optional){
+  sel.innerHTML = (optional?'<option value="-1">— ninguna —</option>':'') + headers.map((h,i)=>`<option value="${i}">${esc(h)}</option>`).join("");
+  sel.value = String(idx>=0?idx:(optional?-1:0));
+}
+function wireDrop(drop, input, label, cb){
+  drop.onclick = ()=> input.click();
+  drop.ondragover = e=>{e.preventDefault(); drop.classList.add("over");};
+  drop.ondragleave = ()=> drop.classList.remove("over");
+  drop.ondrop = e=>{e.preventDefault(); drop.classList.remove("over"); if(e.dataTransfer.files[0]) go(e.dataTransfer.files[0]);};
+  input.onchange = ()=>{ if(input.files[0]) go(input.files[0]); input.value=""; };
+  async function go(f){ label.textContent = "Leyendo "+f.name+"…"; try{ const wb = await readBook(f); label.textContent = f.name; cb(wb, f.name); } catch(err){ label.textContent = "No se pudo leer el archivo: "+err.message; } }
+}
+
+/* ---------- almacenamiento de factores ---------- */
+// factores: { codigo: {d: descripción, c: cajas acumuladas, h: HL acumulados, f: HL por caja, m: true si manual} }
+let FAC = {};
+let db = null, dbRef = null, storeMode = "local";
+const LSK = "hl_factores_v1";
+function facOf(code){ const x = FAC[code]; return x && isFinite(x.f) ? x.f : null; }
+function loadLocal(){ try{ const s = localStorage.getItem(LSK); if(s) FAC = JSON.parse(s)||{}; }catch(e){} }
+function saveLocal(){ try{ localStorage.setItem(LSK, JSON.stringify(FAC)); }catch(e){} }
+let saving = Promise.resolve();
+function persist(){
+  saveLocal();
+  if (dbRef){
+    const body = {items: FAC, actualizado: new Date().toISOString()};
+    saving = saving.then(()=>dbRef.set(body)).then(()=>setStoreInfo()).catch(e=>{ toast("No se pudo guardar en la nube: "+(e&&e.code||e)); });
+  }
+  refreshFacUI();
+}
+function setStoreInfo(){
+  const n = Object.keys(FAC).length;
+  $("storeInfo").textContent = (storeMode==="db"
+    ? "Guardado en la nube del artefacto: lo ves desde cualquier dispositivo y Claude también puede leerlo. "
+    : "Guardado solo en este navegador. Descarga los factores en Excel como respaldo. ") + n + " códigos.";
+}
+async function initStore(){
+  loadLocal(); refreshFacUI();
+  try{
+    if (!window.claude || !window.claude.use) return;
+    db = await window.claude.use("db");
+    if (!db) return;
+    dbRef = db.doc("hl/factores");
+    const snap = await dbRef.get();
+    storeMode = "db";
+    if (snap.exists){
+      const it = (snap.data()||{}).items || {};
+      // fusiona lo local que no esté en la nube
+      const local = FAC; FAC = Object.assign({}, it);
+      let added = 0; for (const k in local) if (!FAC[k]) { FAC[k]=local[k]; added++; }
+      if (added) persist(); else { saveLocal(); refreshFacUI(); }
+    } else if (Object.keys(FAC).length){ persist(); }
+    setStoreInfo();
+  }catch(e){ storeMode="local"; setStoreInfo(); }
+  finally{
+    // fuera de Claude (ej. GitHub Pages): si este navegador aún no tiene factores, carga los de factores.json
+    if (storeMode!=="db" && !Object.keys(FAC).length){
+      try{ const r = await fetch("factores.json", {cache:"no-store"}); if (r.ok){ const o = await r.json(); const it = o.items||o; for (const k in it) if (it[k] && it[k].f>=0) FAC[k]=it[k]; saveLocal(); refreshFacUI(); } }catch(e){}
+    }
+  }
+}
+
+/* ---------- pestañas ---------- */
+document.querySelectorAll("nav button").forEach(b=> b.onclick = ()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
+  ["calc","learn","table"].forEach(t=> $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
+});
+
+/* ---------- APRENDER ---------- */
+let L = {wb:null, headers:[], data:[]};
+wireDrop($("dropLearn"), $("inLearn"), $("fileLearn"), (wb)=>{
+  L.wb = wb;
+  $("lSheet").innerHTML = wb.SheetNames.map(n=>`<option>${esc(n)}</option>`).join("");
+  $("lSheet").value = bestSheet(wb, ["cod","caj","hl"]);
+  loadLearnSheet(); $("mapLearn").classList.remove("hide"); $("msgLearn").textContent="";
+});
+$("lSheet").onchange = loadLearnSheet;
+function loadLearnSheet(){
+  const {headers,data} = sheetData(L.wb, $("lSheet").value); L.headers=headers; L.data=data;
+  const t = new Set(); const g = k => { const i=guess(headers,k,t); if(i>=0) t.add(i); return i; };
+  const hl=g("hl"), cod=g("cod"), caj=g("caj"), des=g("des");
+  fillSelect($("lCod"),headers,cod,false); fillSelect($("lCaj"),headers,caj,false);
+  fillSelect($("lHl"),headers,hl,false); fillSelect($("lDes"),headers,des,true);
+  previewLearn();
+}
+["lCod","lCaj","lHl","lDes"].forEach(id=> $(id).onchange = previewLearn);
+function aggLearn(){
+  const ic=+$("lCod").value, ij=+$("lCaj").value, ih=+$("lHl").value, id=+$("lDes").value;
+  const agg = {};
+  for (const r of L.data){
+    const k = keyCod(r[ic]); if(!k) continue;
+    const c = num(r[ij]), h = numOrNull(r[ih]);
+    if (!(c>0) || h==null || h<0) continue; // #N/A o vacío no se aprende; 0 sí (producto que no suma HL)
+    const a = agg[k] || (agg[k]={c:0,h:0,d:""});
+    a.c+=c; a.h+=h; if(!a.d && id>=0) a.d = String(r[id]??"").trim();
+  }
+  return agg;
+}
+function previewLearn(){
+  const agg = aggLearn(); const n = Object.keys(agg).length;
+  const nuevos = Object.keys(agg).filter(k=>!FAC[k]).length;
+  const ih=+$("lHl").value, ic=+$("lCod").value;
+  const sinHl = new Set(L.data.filter(r=> keyCod(r[ic]) && numOrNull(r[ih])==null).map(r=>keyCod(r[ic]))); sinHl.forEach(k=>{ if(agg[k]) sinHl.delete(k); });
+  $("prevLearn").innerHTML = (n ? `Se encontraron <b>${n}</b> códigos con cajas y HL (${nuevos} nuevos, ${n-nuevos} ya existentes).` : `<span style="color:var(--bad)">No se encontraron filas con cajas y HL. Revisa las columnas elegidas.</span>`)
+    + (sinHl.size ? `<br><span style="color:var(--bad)">${sinHl.size} códigos vienen sin HL (#N/A) en este archivo; se completan en "Calcular HL".</span>` : "");
+}
+function learn(replace){ learnFrom(aggLearn(), replace, $("msgLearn")); }
+function learnFrom(agg, replace, msgEl){
+  let n=0;
+  for (const k in agg){
+    const a = agg[k]; const cur = FAC[k];
+    if (!cur || replace || cur.m){ FAC[k] = {d: a.d || (cur&&cur.d) || "", c:a.c, h:a.h, f:a.h/a.c}; }
+    else { const c=cur.c+a.c, h=cur.h+a.h; FAC[k] = {d: cur.d || a.d, c, h, f:h/c}; }
+    n++;
+  }
+  persist();
+  if (msgEl){ msgEl.className="msg ok"; msgEl.textContent = n ? `Listo: ${n} códigos ${replace?"reemplazados":"aprendidos"}. Revisa la pestaña "Tabla de factores".` : "No había nada que guardar."; }
+  return n;
+}
+$("bLearnAdd").onclick = ()=>learn(false);
+$("bLearnRep").onclick = ()=>learn(true);
+
+/* ---------- TABLA DE FACTORES ---------- */
+let facSort = {k:"cod", dir:1};
+function refreshFacUI(){
+  $("nfac").textContent = Object.keys(FAC).length;
+  setStoreInfo(); renderFac();
+}
+function renderFac(){
+  const q = norm($("qFac").value);
+  let rows = Object.entries(FAC).map(([k,v])=>({cod:k, d:v.d||"", c:v.c||0, h:v.h||0, f:v.f, m:!!v.m}))
+    .filter(r=> !q || norm(r.cod+" "+r.d).includes(q));
+  const k=facSort.k, dir=facSort.dir;
+  rows.sort((a,b)=> (typeof a[k]==="number" ? a[k]-b[k] : String(a[k]).localeCompare(String(b[k]),"es",{numeric:true}))*dir);
+  if (!Object.keys(FAC).length){ $("facTable").innerHTML = `<p class="hint" style="padding:10px">Todavía no hay factores. Sube un Excel con HL en "Aprender factores" o agrégalos a mano.</p>`; return; }
+  $("facTable").innerHTML = `<table><thead><tr>
+    <th data-k="cod">Código</th><th data-k="d">Descripción</th><th class="n" data-k="c">Cajas base</th><th class="n" data-k="h">HL base</th><th class="n" data-k="f">HL por caja</th><th></th></tr></thead><tbody>`+
+    rows.slice(0,2000).map(r=>`<tr><td>${esc(r.cod)}</td><td>${esc(r.d)}</td><td class="n">${r.m?"—":fmt(r.c,0)}</td><td class="n">${r.m?"—":fmt(r.h,2)}</td>
+    <td class="n"><input type="number" step="any" value="${+Number(r.f).toFixed(6)}" data-cod="${esc(r.cod)}">${r.m?' <span class="tag">manual</span>':''}</td>
+    <td><button class="btn sec" style="padding:3px 8px" data-del="${esc(r.cod)}">Quitar</button></td></tr>`).join("")+`</tbody></table>`;
+  $("facTable").querySelectorAll("th[data-k]").forEach(th=> th.onclick=()=>{ facSort = {k:th.dataset.k, dir: facSort.k===th.dataset.k ? -facSort.dir : 1}; renderFac(); });
+  $("facTable").querySelectorAll("input[data-cod]").forEach(inp=> inp.onchange=()=>{
+    const v = numOrNull(inp.value); const c = inp.dataset.cod;
+    if (v!=null && v>=0){ FAC[c] = Object.assign({}, FAC[c], {f:v, m:true}); persist(); toast("Factor de "+c+" actualizado"); }
+  });
+  $("facTable").querySelectorAll("button[data-del]").forEach(b=> b.onclick=()=>{ delete FAC[b.dataset.del]; persist(); });
+}
+$("qFac").oninput = renderFac;
+$("bAddFac").onclick = ()=> $("addFacBox").classList.remove("hide");
+$("bCancelFac").onclick = ()=> $("addFacBox").classList.add("hide");
+$("bSaveFac").onclick = ()=>{
+  const c = keyCod($("nfCod").value), f = num($("nfFac").value);
+  if (!c || numOrNull($("nfFac").value)==null || f<0) { toast("Pon código y el HL por caja (puede ser 0)"); return; }
+  FAC[c] = {d:$("nfDes").value.trim(), c:0, h:0, f, m:true}; persist();
+  $("nfCod").value=$("nfDes").value=$("nfFac").value=""; $("addFacBox").classList.add("hide"); toast("Código "+c+" guardado");
+};
+$("bClearFac").onclick = ()=> $("confirmClear").classList.remove("hide");
+$("bClearNo").onclick = ()=> $("confirmClear").classList.add("hide");
+$("bClearYes").onclick = ()=>{ FAC = {}; persist(); $("confirmClear").classList.add("hide"); toast("Factores borrados"); };
+$("bDlFac").onclick = ()=>{
+  const rows = Object.entries(FAC).map(([k,v])=>({"Código":k,"Descripción":v.d||"","Cajas base":v.m?"":v.c,"HL base":v.m?"":v.h,"HL por caja":v.f,"Origen":v.m?"manual":"calculado"}));
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Factores HL");
+  saveBook(wb, "factores_HL_por_caja.xlsx");
+};
+$("bImpFac").onclick = ()=> $("inImpFac").click();
+$("inImpFac").onchange = async ()=>{
+  const f = $("inImpFac").files[0]; $("inImpFac").value=""; if(!f) return;
+  try{
+    let n=0;
+    if (/\.json$/i.test(f.name)){ const o = JSON.parse(await f.text()); const it=o.items||o; for(const k in it){ if(it[k]&&it[k].f>=0){FAC[keyCod(k)]=it[k]; n++;} } }
+    else {
+      const wb = await readBook(f); const {headers,data} = sheetData(wb, wb.SheetNames[0]);
+      const ci = headers.findIndex(h=>norm(h).startsWith("codigo")), fi = headers.findIndex(h=>norm(h).includes("por caja")),
+            di = headers.findIndex(h=>norm(h).startsWith("descripcion")), cb = headers.findIndex(h=>norm(h)==="cajas base"), hb = headers.findIndex(h=>norm(h)==="hl base");
+      if (ci<0||fi<0) throw new Error('el Excel debe tener columnas "Código" y "HL por caja"');
+      for (const r of data){ const k=keyCod(r[ci]), v=numOrNull(r[fi]); if(!k||v==null||v<0) continue;
+        const c = cb>=0?num(r[cb]):0, h = hb>=0?num(r[hb]):0;
+        FAC[k] = {d: di>=0?String(r[di]??"").trim():"", c, h, f:v, m: !(c>0&&h>0)}; n++; }
+    }
+    persist(); toast(n+" factores importados");
+  }catch(e){ toast("No se pudo importar: "+e.message); }
+};
+
+/* ---------- CALCULAR ---------- */
+let C = {wb:null, headers:[], data:[], rows:[], view:"emp", name:""};
+wireDrop($("dropCalc"), $("inCalc"), $("fileCalc"), (wb, name)=>{
+  C.wb = wb; C.name = name.replace(/\.[^.]+$/,"");
+  $("cSheet").innerHTML = wb.SheetNames.map(n=>`<option>${esc(n)}</option>`).join("");
+  $("cSheet").value = bestSheet(wb, ["cod","caj","cli","fec"]);
+  loadCalcSheet(); $("mapCalc").classList.remove("hide"); $("resCalc").classList.add("hide");
+});
+$("cSheet").onchange = loadCalcSheet;
+function loadCalcSheet(){
+  const {headers,data,meta,info} = sheetData(C.wb, $("cSheet").value); C.headers=headers; C.data=data; C.meta=meta||{}; C.info=info||"";
+  const t = new Set(); const g = k => { const i=guess(headers,k,t); if(i>=0) t.add(i); return i; };
+  const hl=g("hl"), cod=g("cod"), caj=g("caj"), fec=g("fec"), emp=g("emp"), cli=g("cli"), nom=g("nom"), des=g("des"), rut=g("ruta");
+  fillSelect($("cCod"),headers,cod,false); fillSelect($("cCaj"),headers,caj,false);
+  fillSelect($("cFec"),headers,fec,true); fillSelect($("cEmp"),headers,emp,true);
+  fillSelect($("cCli"),headers,cli,true); fillSelect($("cNom"),headers,nom,true); fillSelect($("cDes"),headers,des,true);
+  fillSelect($("cRut"),headers,rut,true); fillSelect($("cHl"),headers,hl,true);
+  const mi = [];
+  if (C.meta.fecha) mi.push("Fecha del reporte: <b>"+esc(C.meta.fecha)+"</b> (se usa si no eliges columna de fecha)");
+  if (C.meta.emp) mi.push("Empresa del reporte: <b>"+esc(C.meta.emp)+"</b>");
+  if (C.info) mi.unshift("Leyendo los datos internos de la tabla dinámica (traen Empresa, Placa, etc.): <b>"+esc(C.info)+"</b>");
+  $("metaCalc").innerHTML = mi.join("<br>");
+  fillFilters();
+}
+["cFec","cEmp","cRut","cCli","cNom"].forEach(id=> $(id).addEventListener("change", fillFilters));
+// Excel de tabla dinámica: ruta, cliente, fecha y empresa solo vienen en la 1.ª fila del grupo → se rellenan hacia abajo
+function filledRows(){
+  const cols = ["cFec","cEmp","cCli","cNom","cRut"].map(id=>+$(id).value).filter(i=>i>=0);
+  const last = {}; const out = [];
+  for (const r0 of C.data){
+    const r = r0.slice();
+    for (const i of cols){ const v = r[i]; if (v==null || String(v).trim()==="") r[i] = last[i] ?? ""; else last[i] = v; }
+    out.push(r);
+  }
+  return out;
+}
+function fillFilters(){
+  const fi=+$("cFec").value, ei=+$("cEmp").value; const rows = filledRows();
+  const fs = fi>=0 ? [...new Set(rows.map(r=>fdate(r[fi])).filter(Boolean))].sort((a,b)=>dkey(a).localeCompare(dkey(b))) : (C.meta.fecha?[C.meta.fecha]:[]);
+  const es = ei>=0 ? [...new Set(rows.map(r=>String(r[ei]??"").trim()).filter(Boolean))].sort() : [];
+  $("fFec").innerHTML = `<option value="">Todas${fs.length?" ("+fs.length+")":""}</option>`+fs.map(f=>`<option>${esc(f)}</option>`).join("");
+  $("fEmp").innerHTML = `<option value="">Todas${es.length?" ("+es.length+")":""}</option>`+es.map(f=>`<option>${esc(f)}</option>`).join("");
+  $("fFec").disabled = !fs.length; $("fEmp").disabled = ei<0;
+  $("bLearnHere").classList.toggle("hide", +$("cHl").value<0);
+}
+$("cHl").addEventListener("change", fillFilters);
+$("bCalc").onclick = calc;
+$("bLearnHere").onclick = ()=>{
+  const ic=+$("cCod").value, ij=+$("cCaj").value, ih=+$("cHl").value, ids=+$("cDes").value; const agg={};
+  for (const r of C.data){ const k=keyCod(r[ic]); if(!k) continue; const c=num(r[ij]), h=numOrNull(r[ih]); if(!(c>0)||h==null||h<0) continue;
+    const a = agg[k] || (agg[k]={c:0,h:0,d:""}); a.c+=c; a.h+=h; if(!a.d && ids>=0) a.d=String(r[ids]??"").trim(); }
+  learnFrom(agg, false, $("msgCalc")); if (C.rows.length) calc();
+};
+function calc(){
+  const ic=+$("cCod").value, ij=+$("cCaj").value, ifc=+$("cFec").value, ie=+$("cEmp").value, icl=+$("cCli").value, inm=+$("cNom").value, ids=+$("cDes").value, irt=+$("cRut").value, ihl=+$("cHl").value;
+  const ff = $("fFec").value, fe = $("fEmp").value;
+  const cliList = $("fCli").value.split(/[\s,;]+/).map(keyCod).filter(Boolean); const cliSet = new Set(cliList);
+  if (cliSet.size && icl<0){ toast("Para filtrar clientes elige la columna Cód. cliente"); return; }
+  C.rows = [];
+  for (const r of filledRows()){
+    const cod = keyCod(r[ic]); if (!cod) continue;
+    const fecha = ifc>=0 ? fdate(r[ifc]) : (C.meta.fecha||""), emp = ie>=0 ? String(r[ie]??"").trim() : (C.meta.emp||"");
+    const cli = icl>=0 ? keyCod(r[icl]) : "", nom = inm>=0 ? String(r[inm]??"").trim() : "", ruta = irt>=0 ? String(r[irt]??"").trim() : "";
+    if (ff && fecha!==ff) continue; if (fe && emp!==fe) continue; if (cliSet.size && !cliSet.has(cli)) continue;
+    const cajas = num(r[ij]); const f = facOf(cod);
+    const hlFile = ihl>=0 ? numOrNull(r[ihl]) : null;
+    let hl = null, src = "";
+    if (hlFile!=null){ hl = hlFile; src = "archivo"; } else if (f!=null){ hl = cajas*f; src = "calculado"; }
+    C.rows.push({cod, des: (ids>=0 ? String(r[ids]??"").trim() : "") || (FAC[cod]&&FAC[cod].d) || "", fecha, emp, cli, nom, ruta, cajas, f, hl, src, raw:r});
+  }
+  C.notFound = cliSet.size ? [...cliSet].filter(c=> !C.rows.some(x=>x.cli===c)) : [];
+  $("resCalc").classList.remove("hide");
+  renderKpis(); renderResult();
+  $("resCalc").scrollIntoView({behavior:"smooth", block:"start"});
+}
+function group(keyFn, labelFn){
+  const m = new Map();
+  for (const r of C.rows){ const k = keyFn(r); let g = m.get(k); if(!g){ g = Object.assign({cajas:0, hl:0, hlCalc:0, cajasSin:0, n:0, clis:new Set()}, labelFn(r)); m.set(k,g); }
+    g.cajas += r.cajas; g.n++; g.clis.add(r.cli);
+    if (r.hl!=null){ g.hl += r.hl; if (r.src==="calculado") g.hlCalc += r.hl; } else g.cajasSin += r.cajas; }
+  return [...m.values()];
+}
+function renderKpis(){
+  const tc = C.rows.reduce((s,r)=>s+r.cajas,0), th = C.rows.reduce((s,r)=>s+(r.hl||0),0);
+  const hasFile = C.rows.some(r=>r.src==="archivo");
+  const hc = C.rows.filter(r=>r.src==="calculado").reduce((s,r)=>s+r.hl,0);
+  const nCalc = C.rows.filter(r=>r.src==="calculado").length;
+  const miss = new Set(C.rows.filter(r=>r.hl==null).map(r=>r.cod));
+  const cs = C.rows.filter(r=>r.hl==null).reduce((s,r)=>s+r.cajas,0);
+  const nc = new Set(C.rows.map(r=>r.cli).filter(Boolean)).size;
+  const fechas = [...new Set(C.rows.map(r=>r.fecha).filter(Boolean))];
+  $("kpis").innerHTML = `
+    <div class="kpi"><div class="v">${fmt(th,2)}</div><div class="l">HL programados${fechas.length===1?" · "+esc(fechas[0]):""}</div></div>
+    <div class="kpi"><div class="v">${fmt(tc,0)}</div><div class="l">Cajas</div></div>
+    <div class="kpi"><div class="v">${fmt(nc,0)}</div><div class="l">Clientes</div></div>` +
+    (hasFile ? `<div class="kpi"><div class="v">${fmt(hc,2)}</div><div class="l">HL completados con factor (${nCalc} líneas que venían sin HL)</div></div>` : "") +
+    `<div class="kpi ${miss.size?"warn":""}"><div class="v">${miss.size}</div><div class="l">Códigos sin factor (${fmt(cs,0)} cajas sin HL)${miss.size?" → ver pestaña Sin factor":""}</div></div>` +
+    (C.notFound.length ? `<div class="kpi warn"><div class="v">${C.notFound.length}</div><div class="l">Clientes pegados que no están en el Excel: ${esc(C.notFound.slice(0,8).join(", "))}${C.notFound.length>8?"…":""}</div></div>` : "");
+}
+document.querySelectorAll("#rtabs button").forEach(b=> b.onclick=()=>{ document.querySelectorAll("#rtabs button").forEach(x=>x.classList.toggle("on",x===b)); C.view=b.dataset.r; renderResult(); });
+let resSort = {k:"hl", dir:-1};
+const has = (rows,k) => rows.some(r=>r[k]);
+function viewData(v){
+  const totRow = rows => ({cajas: rows.reduce((s,r)=>s+r.cajas,0), hl: rows.reduce((s,r)=>s+(r.hl||0),0), cajasSin: rows.reduce((s,r)=>s+(r.cajasSin||0),0), clientes: new Set(C.rows.map(r=>r.cli)).size});
+  const tail = [["cajas","Cajas","n0"],["hl","HL","n2"],["cajasSin","Cajas sin factor","n0"]];
+  if (v==="emp"){ const rows = group(r=>r.emp, r=>({emp:r.emp||"(sin empresa)"})).map(g=>({emp:g.emp, clientes:g.clis.size, cajas:g.cajas, hl:g.hl, cajasSin:g.cajasSin}));
+    return {cols:[["emp","Empresa"],["clientes","Clientes","n0"],...tail], rows, tot: totRow(rows)}; }
+  if (v==="cli"){ const rows = group(r=>[r.emp,r.fecha,r.ruta,r.cli].join("|"), r=>({emp:r.emp, fecha:r.fecha, ruta:r.ruta, cli:r.cli, nom:r.nom})).map(g=>({emp:g.emp, fecha:g.fecha, ruta:g.ruta, cli:g.cli, nom:g.nom, cajas:g.cajas, hl:g.hl, cajasSin:g.cajasSin}));
+    const cols = [["emp","Empresa"],["fecha","Fecha"],["ruta","Ruta"],["cli","Cód. cliente"],["nom","Cliente"],...tail].filter(c=> !["emp","fecha","ruta","nom"].includes(c[0]) || has(rows,c[0]));
+    return {cols, rows, tot: totRow(rows)}; }
+  if (v==="fec"){ const rows = group(r=>r.fecha+"|"+r.emp, r=>({fecha:r.fecha||"(sin fecha)", emp:r.emp})).map(g=>({fecha:g.fecha, emp:g.emp, clientes:g.clis.size, cajas:g.cajas, hl:g.hl, cajasSin:g.cajasSin}));
+    const cols = [["fecha","Fecha"],["emp","Empresa"],["clientes","Clientes","n0"],...tail].filter(c=> c[0]!=="emp" || has(rows,"emp"));
+    return {cols, rows, tot: totRow(rows)}; }
+  if (v==="rut"){ const rows = group(r=>r.ruta, r=>({ruta:r.ruta||"(sin ruta)"})).map(g=>({ruta:g.ruta, clientes:g.clis.size, cajas:g.cajas, hl:g.hl, cajasSin:g.cajasSin}));
+    return {cols:[["ruta","Ruta"],["clientes","Clientes","n0"],...tail], rows, tot: totRow(rows), note: has(C.rows,"ruta")?"":"Elige la columna Ruta / placa para ver este resumen."}; }
+  if (v==="prod"){ const rows = group(r=>r.cod, r=>({cod:r.cod, des:r.des, f:r.f})).map(g=>({cod:g.cod, des:g.des, f: g.f!=null ? g.f : (g.cajas && g.cajasSin===0 ? g.hl/g.cajas : null), cajas:g.cajas, hl:g.cajasSin===g.cajas?null:g.hl, origen: g.cajasSin ? "sin factor" : (g.hlCalc>0 || (g.f!=null && C.rows.some(r=>r.cod===g.cod && r.src==="calculado")) ? "calculado" : "archivo")}));
+    return {cols:[["cod","Código"],["des","Descripción"],["f","HL por caja","n5"],["cajas","Cajas","n0"],["hl","HL","n2"],["origen","Origen"]], rows, tot: totRow(rows)}; }
+  if (v==="miss"){ const rows = group(r=>r.cod, r=>({cod:r.cod, des:r.des})).filter(g=>g.cajasSin>0).map(g=>{ const e = estFromDesc(g.des), sm = similar(g.cod, g.des), sg = suggest(g.cod, g.des);
+      return {cod:g.cod, des:g.des, cajas:g.cajasSin, clientes:g.clis.size, est:e, sim: sm ? sm.d+" → "+fmt(sm.f,5) : "", sug: sg.v, why: sg.why}; });
+    return {miss:true, cols:[["cod","Código"],["des","Descripción"],["cajas","Cajas","n0"],["clientes","Clientes","n0"],["est","Fórmula (unid × ml)","n5"],["sim","Producto parecido"],["why","Sugerencia basada en"]], rows, tot:null,
+      note: rows.length ? "Fórmula = unidades por caja × ml ÷ 100 000 (ej. 6 × 473 ml = 0.02838 HL). La casilla trae la sugerencia: revísala y corrígela si sabes el valor real antes de guardar. En tus hojas de ruta varios productos que no son cerveza (vinos, golosinas, cigarros) vienen con HL 0." : "Todos los productos tienen factor."}; }
+}
+function cell(v, t){ if (v==null || v==="") return t&&t.startsWith("n") ? "—" : ""; if (t==="n0") return fmt(v,0); if (t==="n2") return fmt(v,2); if (t==="n4") return fmt(v,4); if (t==="n5") return fmt(v,5); return esc(v); }
+function renderResult(){
+  const d = viewData(C.view); C.cur = d;
+  const k = d.cols.some(c=>c[0]===resSort.k) ? resSort.k : (d.cols.some(c=>c[0]==="hl")?"hl":"cajas");
+  const dir = d.cols.some(c=>c[0]===resSort.k) ? resSort.dir : -1;
+  d.rows.sort((a,b)=>{ const x=a[k], y=b[k]; if (typeof x==="number"||typeof y==="number") return ((x??-1)-(y??-1))*dir; return String(x??"").localeCompare(String(y??""),"es",{numeric:true})*dir; });
+  if (C.view==="fec") d.rows.sort((a,b)=> resSort.k==="fecha"||!d.cols.some(c=>c[0]===resSort.k) ? dkey(a.fecha).localeCompare(dkey(b.fecha))||String(a.emp).localeCompare(String(b.emp)) : 0);
+  let h = `<table><thead><tr>${d.cols.map(c=>`<th class="${c[2]?"n":""}" data-k="${c[0]}">${c[1]}</th>`).join("")}${d.miss?"<th>HL por caja a guardar</th>":""}</tr></thead><tbody>`;
+  h += d.rows.map(r=>`<tr class="${(r.hl==null && d.cols.some(c=>c[0]==="hl"))?"miss":""}">${d.cols.map(c=>`<td class="${c[2]?"n":""}">${cell(r[c[0]],c[2])}</td>`).join("")}${d.miss?`<td>
+      <input type="number" step="any" data-mcod="${esc(r.cod)}" value="${r.sug!=null?+r.sug.toFixed(6):""}" style="width:100px">
+      <button class="btn" style="padding:4px 10px" data-msave="${esc(r.cod)}">Guardar</button></td>`:""}</tr>`).join("");
+  if (d.tot) h += `<tr class="tot">${d.cols.map((c,i)=>`<td class="${c[2]?"n":""}">${i===0?"TOTAL":(c[0] in d.tot ? cell(d.tot[c[0]],c[2]) : "")}</td>`).join("")}</tr>`;
+  h += `</tbody></table>`;
+  if (d.note) h += `<p class="hint" style="padding:8px">${esc(d.note)}</p>`;
+  if (d.miss && d.rows.length) h += `<div class="row" style="padding:0 8px 8px"><button class="btn" id="bSaveAllMiss">Guardar todos y recalcular</button></div>`;
+  $("rTable").innerHTML = h;
+  $("rTable").querySelectorAll("th[data-k]").forEach(th=> th.onclick=()=>{ resSort = {k:th.dataset.k, dir: resSort.k===th.dataset.k ? -resSort.dir : (["hl","cajas","clientes","cajasSin"].includes(th.dataset.k)?-1:1)}; renderResult(); });
+  const saveMiss = (cods) => { let n=0; cods.forEach(c=>{ const inp = $("rTable").querySelector(`input[data-mcod="${CSS.escape(c)}"]`); const v = inp?numOrNull(inp.value):null;
+      if (v!=null && v>=0){ const row = d.rows.find(x=>x.cod===c); FAC[c] = {d: row?row.des:"", c:0, h:0, f:v, m:true}; n++; } });
+    if (n){ persist(); toast(n+" factor(es) guardado(s)"); calc(); } else toast("Escribe el HL por caja (puede ser 0)"); };
+  $("rTable").querySelectorAll("button[data-msave]").forEach(b=> b.onclick=()=>saveMiss([b.dataset.msave]));
+  const all = $("bSaveAllMiss"); if (all) all.onclick = ()=>saveMiss(d.rows.map(r=>r.cod));
+}
+$("bCopy").onclick = async ()=>{
+  const d = C.cur; if(!d) return;
+  const all = d.rows.concat(d.tot?[Object.assign({}, d.tot, {[d.cols[0][0]]:"TOTAL"})]:[]);
+  const html = `<table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;font-family:Calibri,Arial;font-size:11pt"><tr>${d.cols.map(c=>`<th style="background:#b8860b;color:#fff">${c[1]}</th>`).join("")}</tr>`+
+    all.map((r,i)=>`<tr${i===all.length-1&&d.tot?' style="font-weight:bold;background:#fff3cd"':''}>${d.cols.map(c=>`<td${c[2]?' align="right"':''}>${cell(r[c[0]],c[2])}</td>`).join("")}</tr>`).join("")+`</table>`;
+  const tsv = [d.cols.map(c=>c[1]).join("\t")].concat(all.map(r=>d.cols.map(c=>cell(r[c[0]],c[2])).join("\t"))).join("\n");
+  try{ await navigator.clipboard.write([new ClipboardItem({"text/html":new Blob([html],{type:"text/html"}),"text/plain":new Blob([tsv],{type:"text/plain"})})]); toast("Tabla copiada. Pégala en el correo."); }
+  catch(e){ try{ await navigator.clipboard.writeText(tsv); toast("Tabla copiada como texto"); }catch(e2){ toast("Tu navegador no permitió copiar"); } }
+};
+$("bDlCalc").onclick = ()=>{
+  const wb = XLSX.utils.book_new();
+  const sheetOf = v => { const d = viewData(v); const rows = d.rows.map(r=>Object.fromEntries(d.cols.map(c=>[c[1], r[c[0]]==null?"":(c[2]==="n2"?Math.round(r[c[0]]*100)/100:r[c[0]])])));
+    if (d.tot) rows.push(Object.fromEntries(d.cols.map((c,i)=>[c[1], i===0?"TOTAL":(c[0] in d.tot? (c[2]==="n2"?Math.round(d.tot[c[0]]*100)/100:d.tot[c[0]]) :"")]))); return XLSX.utils.json_to_sheet(rows); };
+  XLSX.utils.book_append_sheet(wb, sheetOf("emp"), "Por empresa");
+  XLSX.utils.book_append_sheet(wb, sheetOf("cli"), "Por cliente");
+  XLSX.utils.book_append_sheet(wb, sheetOf("fec"), "Por fecha");
+  if (C.rows.some(r=>r.ruta)) XLSX.utils.book_append_sheet(wb, sheetOf("rut"), "Por ruta");
+  XLSX.utils.book_append_sheet(wb, sheetOf("prod"), "Por producto");
+  XLSX.utils.book_append_sheet(wb, sheetOf("miss"), "Sin factor");
+  const det = [C.headers.concat(["HL por caja","HL final","Origen HL"])].concat(C.rows.map(r=> r.raw.slice(0,C.headers.length).map(v=> v instanceof Date ? fdate(v) : v).concat([r.f??"", r.hl!=null?Math.round(r.hl*100000)/100000:"", r.src||"sin factor"])));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(det), "Detalle con HL");
+  saveBook(wb, (C.name||"resultado")+"_HL.xlsx");
+};
+
+/* ---------- descargas ---------- */
+async function saveBook(wb, filename){
+  const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
+  const blob = new Blob([buf], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  try{
+    if (window.claude && window.claude.use){
+      const dl = await window.claude.use("downloads");
+      if (dl){ try{ await dl.save({filename, data: blob}); toast("Archivo descargado"); }catch(e){ if(e&&e.code!=="declined") toast("No se pudo descargar ("+(e.code||e)+")"); } return; }
+    }
+  }catch(e){}
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+}
+
+initStore();
+</script>
+</body>
+</html>
