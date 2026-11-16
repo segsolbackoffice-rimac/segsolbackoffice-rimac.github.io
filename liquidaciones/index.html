@@ -118,6 +118,12 @@
   .tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
   .det{display:none} .det.on{display:table-row}
   .det td{background:#fafbff}
+  .dia-row{background:#fff;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;overflow:hidden}
+  .dia-h{display:flex;flex-wrap:wrap;gap:6px 22px;align-items:center;padding:12px 14px;cursor:pointer;font-size:12.5px;color:var(--muted)}
+  .dia-h:hover{background:#fafbff}
+  .dia-h b{color:var(--ink)} .dia-h .pos b,.dia-h b.pos{color:var(--green)} .dia-h b.neg{color:var(--red)}
+  .dia-f{min-width:190px;color:var(--ink);font-size:13.5px} .dia-f small{color:var(--muted);text-transform:capitalize}
+  .dia-row.on .dia-h{background:var(--head);border-bottom:1px solid var(--line)}
   input.precio{width:80px;text-align:right;padding:4px 6px}
 </style>
 </head>
@@ -126,7 +132,7 @@
   <div class="logo"><span>S</span> SEGSOL</div>
   <div class="sec">Liquidaciones</div>
   <button data-v="liquidar">🧾 Liquidaciones</button>
-  <button data-v="reporte">📊 Reporte de pagos y descuentos</button>
+  <button data-v="reporte">💰 Cierre del día: pagos y descuentos</button>
   <button data-v="traza">🔎 Trazabilidad</button>
   <div class="sec">Datos</div>
   <button data-v="tripulacion">🚚 Tripulación del día</button>
@@ -356,13 +362,13 @@ function estadoTag(l) {
 // =====================================================================
 // Navegación
 // =====================================================================
-const TITULOS = { liquidar: "Liquidaciones", reporte: "Reporte de pagos y descuentos", traza: "Trazabilidad de faltantes y sobrantes",
+const TITULOS = { liquidar: "Liquidaciones", reporte: "Cierre del día: total pagado y descontado al personal", traza: "Trazabilidad de faltantes y sobrantes",
   tripulacion: "Tripulación del día", personal: "Personal", vehiculos: "Vehículos", config: "Configuración" };
 function ir(v) {
   VISTA = v;
   document.querySelectorAll(".side button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
   $("titulo").textContent = TITULOS[v];
-  $("topFecha").style.visibility = ["tripulacion"].includes(v) ? "visible" : "hidden";
+  $("topFecha").style.visibility = "hidden";
   document.body.classList.remove("abierto");
   render();
 }
@@ -445,6 +451,7 @@ function vLiquidar(m) {
       <div class="kpi"><span>Descontado</span><b class="neg">${soles(ds, false)}</b></div>
       <div class="kpi"><span>Sobrante a favor</span><b class="pos">${soles(r2(fav), false)}</b></div>
     </div>
+    <div class="row" style="justify-content:flex-end;margin:-4px 0 12px"><button class="primary" id="irCierre">💰 Ver cierre del día (total pagado y descontado)</button></div>
     <div class="card">
       <div class="drop" id="dropGeneral"><b>Arrastra aquí los PDFs del día</b> o haz clic para elegirlos
         <small>Cada PDF se asigna solo al vehículo con la misma placa. También puedes soltar el PDF directamente sobre la tarjeta del vehículo.</small></div>
@@ -461,6 +468,7 @@ function vLiquidar(m) {
   lq.oninput = () => { LF.q = lq.value; clearTimeout(lq._t); lq._t = setTimeout(() => { const pos = lq.selectionStart; render(); const n = $("lQ"); n.focus(); n.setSelectionRange(pos, pos); }, 250); };
   $("lEst").onchange = e => { LF.estado = e.target.value; render(); };
   $("lLimpiar").onclick = () => { LF = { q: "", estado: "" }; render(); };
+  $("irCierre").onclick = () => { REP.desde = REP.hasta = FECHA; ir("reporte"); };
   const dg = $("dropGeneral");
   dg.onclick = () => { $("filePdf").dataset.veh = ""; $("filePdf").click(); };
   dg.ondragover = e => { e.preventDefault(); dg.classList.add("over"); };
@@ -758,8 +766,15 @@ function vReporte(m) {
   REP.desde = REP.desde || FECHA; REP.hasta = REP.hasta || FECHA;
   const ls = liqsRango(REP.desde, REP.hasta).filter(l => coincideTexto(REP.q, l, vehiculo(l.vehId) || {}, tripLiq(l)));
   let aC = 0, pg = 0, ds = 0, sob = 0, fal = 0, fav = 0;
-  const porMedio = {}, porPersona = {};
+  const porMedio = {}, porPersona = {}, porColab = {};
   ls.forEach(l => {
+    const v = vehiculo(l.vehId) || {};
+    (l.cobros || []).forEach(x => {
+      const k = (x.dni || "") + "|" + x.nombre;
+      const p = porColab[k] = porColab[k] || { nombre: x.nombre, dni: x.dni, pagado: 0, descontado: 0, items: [], placas: new Set() };
+      if (x.tipo === "pago") p.pagado = r2(p.pagado + x.monto); else p.descontado = r2(p.descontado + x.monto);
+      p.placas.add(v.placa + (v.bk ? " — " + v.bk : "")); p.items.push({ l, v, x });
+    });
     const c = calc(l); aC += c.aCobrar; pg += c.pagado; ds += c.descontado; sob += c.sobr; fal += c.falt; fav += c.aFavor;
     (l.cobros || []).forEach(x => {
       if (x.tipo === "pago") porMedio[x.medio] = r2((porMedio[x.medio] || 0) + x.monto);
@@ -784,6 +799,16 @@ function vReporte(m) {
       <div class="kpi"><span>Total pagado</span><b class="pos">${soles(r2(pg), false)}</b></div>
       <div class="kpi"><span>Total descuento</span><b class="neg">${soles(r2(ds), false)}</b></div>
       <div class="kpi"><span>Sobrante a favor</span><b class="pos">${soles(r2(fav), false)}</b></div>
+    </div>
+    <div class="card scroll"><h2>Total por colaborador</h2>
+      ${Object.keys(porColab).length ? `<table><thead><tr><th>Colaborador</th><th>DNI</th><th>Vehículo(s)</th><th class="num">Pagado</th><th class="num">Descontado</th><th class="num">Total</th><th></th></tr></thead><tbody>
+      ${Object.values(porColab).sort((a, b) => a.nombre.localeCompare(b.nombre)).map((p, i) => `<tr>
+        <td><b>${esc(p.nombre)}</b></td><td>${esc(p.dni)}</td><td style="font-size:12px">${[...p.placas].map(esc).join("<br>")}</td>
+        <td class="num pos">${soles(p.pagado, false)}</td><td class="num neg">${soles(p.descontado, false)}</td><td class="num"><b>${soles(r2(p.pagado + p.descontado), false)}</b></td>
+        <td><button data-col="${i}">Ver detalle</button></td></tr>
+        <tr class="det" id="col_${i}"><td colspan="7">${p.items.map(({ l, v, x }) => `<div>${fmtF(l.fecha)} · ${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""} · viaje ${esc(l.pdf.enc.viaje)} · ${x.tipo === "pago" ? "💵 Pago " + esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") : "📉 Descuento" + (x.modo === "tripulacion" ? " (partes iguales)" : "")} · <b>${soles(x.monto, false)}</b></div>`).join("")}</td></tr>`).join("")}
+      <tr><td colspan="3"><b>TOTAL</b></td><td class="num pos"><b>${soles(r2(pg), false)}</b></td><td class="num neg"><b>${soles(r2(ds), false)}</b></td><td class="num"><b>${soles(r2(pg + ds), false)}</b></td><td></td></tr>
+      </tbody></table>` : `<div class="vacio">Aún no hay pagos ni descuentos registrados en este rango.</div>`}
     </div>
     <div class="dos" style="grid-template-columns:1fr 1fr">
       <div class="card"><h2>Pagos por medio</h2>${Object.keys(porMedio).length ? `<table><thead><tr><th>Medio</th><th class="num">Monto</th></tr></thead><tbody>
@@ -810,6 +835,7 @@ function vReporte(m) {
   rq.oninput = () => { REP.q = rq.value; clearTimeout(rq._t); rq._t = setTimeout(() => { const pos = rq.selectionStart; render(); const n = $("rQ"); n.focus(); n.setSelectionRange(pos, pos); }, 300); };
   m.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => abrirLiqId(b.dataset.ver));
   m.querySelectorAll("[data-desg]").forEach(b => b.onclick = () => $("d_" + b.dataset.desg).classList.toggle("on"));
+  m.querySelectorAll("[data-col]").forEach(b => b.onclick = () => $("col_" + b.dataset.col).classList.toggle("on"));
   $("rExcel").onclick = () => exportarReporte(ls);
 }
 
@@ -893,38 +919,86 @@ function vTraza(m) {
 // VISTA: Tripulación del día (arrastrar personas a los vehículos)
 // =====================================================================
 let BUSCA_P = "";
+let HIST_ABIERTO = new Set();
+const hayQ = (q, txt) => !q || sinTilde(q).split(/\s+/).filter(Boolean).every(w => sinTilde(txt).includes(w) || norm(txt).includes(norm(w)));
+// todas las filas (vehículo) de una fecha: tripulación asignada y/o liquidación cargada
+function filasDia(fecha) {
+  const ids = new Set(Object.keys(S.dias[fecha] || {}));
+  Object.values(S.liqs).forEach(l => { if (l.fecha === fecha && l.pdf) ids.add(l.vehId); });
+  return [...ids].map(id => {
+    const v = vehiculo(id) || { placa: "?", bk: "" }, l = liqDe(fecha, id);
+    const trip = l && l.pdf ? tripLiq(l) : tripDia(fecha, id).map(t => ({ personaId: t.personaId, nombre: t.p.nombre, dni: t.p.dni, funcion: t.funcion }));
+    const txt = [v.placa, v.bk, l && l.pdf ? l.pdf.enc.viaje + " " + l.pdf.enc.placa + " " + l.pdf.enc.conductor : "", ...trip.map(t => t.nombre + " " + (t.dni || ""))].join(" ");
+    return { v, l: l && l.pdf ? l : null, trip, txt, c: l && l.pdf ? calc(l) : null };
+  }).sort((a, b) => a.v.placa.localeCompare(b.v.placa));
+}
 function vTripulacion(m) {
   const dia = S.dias[FECHA] || {};
   const asignados = new Set(Object.values(dia).flat().map(t => t.personaId));
-  const lista = S.personal.filter(p => !BUSCA_P || sinTilde(p.nombre + " " + p.dni).includes(sinTilde(BUSCA_P)));
+  const lista = S.personal.filter(p => hayQ(BUSCA_P, p.nombre + " " + p.dni));
+  const vehsF = S.vehiculos.filter(v => hayQ(BUSCA_P, [v.placa, v.bk, ...tripDia(FECHA, v.id).map(t => t.p.nombre + " " + (t.p.dni || ""))].join(" ")));
+  // historial
+  const fechas = [...new Set([...Object.keys(S.dias).filter(d => Object.keys(S.dias[d]).length), ...Object.values(S.liqs).filter(l => l.pdf).map(l => l.fecha)])].sort().reverse();
+  const hist = fechas.map(fe => ({ fe, filas: filasDia(fe).filter(r => hayQ(BUSCA_P, r.txt)) })).filter(h => h.filas.length);
   m.innerHTML = `
-    <div class="card"><div class="row" style="align-items:center">
-      <span class="ayuda" style="margin:0">Arrastra a cada persona hacia su vehículo (o usa “+ Agregar” en la tarjeta). La tripulación queda registrada para la fecha <b>${fmtF(FECHA)}</b>.</span>
-      <div class="grow"></div>
+    <div class="card"><div class="row">
+      <label class="f">Fecha<input type="date" id="trFecha" value="${FECHA}"></label>
+      <label class="f grow">Buscar (nombre, DNI, placa, nombre comercial o viaje)<input id="trBusca" value="${esc(BUSCA_P)}" placeholder="Ej. 45879632, BMX-740, BK3788, Guillermo"></label>
+      <button id="trLimpiar">Limpiar</button>
       <button id="trCopiar">Copiar del día anterior</button>
       <button class="danger" id="trVaciar" ${Object.keys(dia).length ? "" : "disabled"}>Vaciar día</button>
-    </div></div>
+    </div>
+    <p class="ayuda" style="margin:8px 0 0">Arrastra a cada persona hacia su vehículo (o usa “+ Agregar” en la tarjeta). La tripulación queda registrada para el <b>${fmtF(FECHA)}</b>.</p></div>
     ${!S.vehiculos.length || !S.personal.length ? `<div class="card m-warn">Primero registra ${!S.vehiculos.length ? "<b>vehículos</b>" : ""}${!S.vehiculos.length && !S.personal.length ? " y " : ""}${!S.personal.length ? "<b>personal</b>" : ""} en sus apartados del menú.</div>` : ""}
     <div class="dos">
-      <div class="card"><h2>Personal (${S.personal.length})</h2>
-        <input id="trBusca" placeholder="Buscar nombre o DNI" value="${esc(BUSCA_P)}" style="width:100%;margin-bottom:8px">
-        <div class="chips">${lista.map(p => `<span class="chip ${asignados.has(p.id) ? "usado" : ""}" draggable="true" data-p="${p.id}">${esc(p.nombre)} <small>${esc(p.funcion || "")}</small></span>`).join("") || `<span class="vacio">Sin personal.</span>`}</div>
+      <div class="card"><h2>Personal (${lista.length}${lista.length !== S.personal.length ? " de " + S.personal.length : ""})</h2>
+        <div class="chips">${lista.map(p => `<span class="chip ${asignados.has(p.id) ? "usado" : ""}" draggable="true" data-p="${p.id}" title="DNI ${esc(p.dni)}">${esc(p.nombre)} <small>${esc(p.funcion || "")}</small></span>`).join("") || `<span class="vacio">Sin resultados.</span>`}</div>
       </div>
-      <div class="grid-veh">${S.vehiculos.map(v => {
+      <div class="grid-veh">${vehsF.length ? vehsF.map(v => {
         const t = tripDia(FECHA, v.id);
         return `<div class="veh" data-vt="${v.id}" style="cursor:default">
           <div class="vh"><span>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</span><span class="tag azul">${t.length}</span></div>
           ${t.length ? `<table><thead><tr><th></th><th class="num">Función</th><th></th></tr></thead><tbody>${t.map(x => `<tr>
-            <td>${esc(x.p.nombre)}</td>
+            <td>${esc(x.p.nombre)}${x.p.dni ? `<br><small class="ayuda">DNI ${esc(x.p.dni)}</small>` : ""}</td>
             <td class="num"><select data-fun="${v.id}|${x.personaId}" style="padding:2px 4px;font-size:11px">${FUNCIONES.concat(FUNCIONES.includes(x.funcion) ? [] : [x.funcion]).map(f => `<option ${f === x.funcion ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></td>
             <td><button class="x" data-quitar="${v.id}|${x.personaId}">✕</button></td></tr>`).join("")}</tbody></table>`
             : `<div class="sin">Suelta aquí a la tripulación</div>`}
           <div class="vf"><select data-add="${v.id}" style="width:100%;font-size:12px"><option value="">+ Agregar persona…</option>
             ${S.personal.filter(p => !asignados.has(p.id)).map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></div>
-        </div>`; }).join("")}</div>
-    </div>`;
+        </div>`; }).join("") : `<div class="card vacio">Ningún vehículo coincide con la búsqueda.</div>`}</div>
+    </div>
+    <h2 style="margin-top:22px">Historial de viajes por fecha</h2>
+    <p class="ayuda">Haz clic en una fecha para ver todos los viajes cargados ese día, con placa, tripulación y montos.${BUSCA_P ? " Filtrado por “" + esc(BUSCA_P) + "”." : ""}</p>
+    ${hist.length ? hist.map(({ fe, filas }) => {
+      const ab = HIST_ABIERTO.has(fe) || (BUSCA_P && hist.length <= 3);
+      let pg = 0, ds = 0, aC = 0, fav = 0, nv = 0, nc = 0;
+      filas.forEach(r => { if (r.c) { nv++; pg += r.c.pagado; ds += r.c.descontado; aC += r.c.aCobrar; fav += r.c.aFavor; if (r.l.estado === "cerrada") nc++; } });
+      const dsem = new Date(fe + "T12:00:00").toLocaleDateString("es-PE", { weekday: "long" });
+      return `<div class="dia-row ${ab ? "on" : ""}">
+        <div class="dia-h" data-hist="${fe}">
+          <span class="dia-f">${ab ? "▾" : "▸"} <b>${fmtF(fe)}</b> <small>${dsem}</small></span>
+          <span>${filas.length} vehículo(s)</span><span>${nv} viaje(s) cargado(s)</span><span>${nc} cerrada(s)</span>
+          <span>A cobrar <b>${soles(r2(aC), false)}</b></span><span>Pagado <b class="pos">${soles(r2(pg), false)}</b></span>
+          <span>Descuento <b class="neg">${soles(r2(ds), false)}</b></span>${fav ? `<span>A favor <b class="pos">${soles(r2(fav), false)}</b></span>` : ""}
+        </div>
+        ${ab ? `<div class="scroll"><table><thead><tr><th>Placa — Nombre</th><th>Nº viaje</th><th>Conductor (PDF)</th><th>Tripulación</th><th>Estado</th><th class="num">Neto</th><th class="num">A cobrar</th><th class="num">Pagado</th><th class="num">Descuento</th><th></th></tr></thead><tbody>
+          ${filas.map(r => `<tr><td><b>${esc(r.v.placa)}</b>${r.v.bk ? " — " + esc(r.v.bk) : ""}</td>
+            <td>${r.l ? esc(r.l.pdf.enc.viaje) : "—"}</td><td>${r.l ? esc(r.l.pdf.enc.conductor) : "—"}</td>
+            <td style="font-size:12px">${r.trip.map(t => `${esc(t.nombre)} <small class="ayuda">(${esc(t.funcion)}${t.dni ? " · " + esc(t.dni) : ""})</small>`).join("<br>") || "—"}</td>
+            <td>${estadoTag(r.l)}</td>
+            <td class="num ${r.c ? cls(r.c.neto) : ""}">${r.c ? soles(r.c.neto) : "—"}</td><td class="num">${r.c ? soles(r.c.aCobrar, false) : "—"}</td>
+            <td class="num pos">${r.c ? soles(r.c.pagado, false) : "—"}</td><td class="num neg">${r.c ? soles(r.c.descontado, false) : "—"}</td>
+            <td>${r.l ? `<button data-ver="${r.l.id}">Ver</button>` : ""}</td></tr>`).join("")}
+          </tbody></table></div>
+          <div class="row" style="padding:8px 12px"><button data-irfecha="${fe}">Ir a la tripulación de este día</button></div>` : ""}
+      </div>`; }).join("") : `<div class="card vacio">Aún no hay días registrados${BUSCA_P ? " que coincidan con la búsqueda" : ""}.</div>`}`;
+  $("trFecha").onchange = e => { FECHA = e.target.value || hoyISO(); $("fecha").value = FECHA; render(); };
   const b = $("trBusca");
-  b.oninput = () => { BUSCA_P = b.value; const pos = b.selectionStart; render(); const n = $("trBusca"); n.focus(); n.setSelectionRange(pos, pos); };
+  b.oninput = () => { BUSCA_P = b.value; clearTimeout(b._t); b._t = setTimeout(() => { const pos = b.selectionStart; render(); const n = $("trBusca"); n.focus(); n.setSelectionRange(pos, pos); }, 250); };
+  $("trLimpiar").onclick = () => { BUSCA_P = ""; render(); };
+  m.querySelectorAll("[data-hist]").forEach(h => h.onclick = () => { const fe = h.dataset.hist; HIST_ABIERTO.has(fe) ? HIST_ABIERTO.delete(fe) : HIST_ABIERTO.add(fe); render(); });
+  m.querySelectorAll("[data-ver]").forEach(x => x.onclick = () => abrirLiqId(x.dataset.ver));
+  m.querySelectorAll("[data-irfecha]").forEach(x => x.onclick = () => { FECHA = x.dataset.irfecha; $("fecha").value = FECHA; render(); window.scrollTo({ top: 0, behavior: "smooth" }); });
   m.querySelectorAll(".chip[data-p]").forEach(c => c.ondragstart = e => e.dataTransfer.setData("text/persona", c.dataset.p));
   m.querySelectorAll("[data-vt]").forEach(card => {
     card.ondragover = e => { if ([...e.dataTransfer.types].includes("text/persona")) { e.preventDefault(); card.classList.add("over"); } };
@@ -1133,6 +1207,14 @@ function exportarReporte(ls) {
   hoja(wb, "Liquidaciones", COLS_LIQ, filasLiq(ls), [11, 12, 13, 14, 15, 16, 17, 18], 13);
   hoja(wb, "Pagos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Pagó", "DNI", "Medio", "Nº operación", "Monto S/"], filasCobros(ls, "pago"), [8]);
   hoja(wb, "Descuentos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Persona", "DNI", "Tipo", "Monto S/"], filasCobros(ls, "descuento"), [7]);
+  const col = {};
+  ls.forEach(l => (l.cobros || []).forEach(x => { const k = (x.dni || "") + "|" + x.nombre; const p = col[k] = col[k] || [x.nombre, x.dni, 0, 0, 0];
+    if (x.tipo === "pago") p[2] = r2(p[2] + x.monto); else p[3] = r2(p[3] + x.monto); p[4] = r2(p[2] + p[3]); }));
+  const filasCol = Object.values(col).sort((a, b) => a[0].localeCompare(b[0]));
+  filasCol.push(["TOTAL", "", r2(filasCol.reduce((a, r) => a + r[2], 0)), r2(filasCol.reduce((a, r) => a + r[3], 0)), r2(filasCol.reduce((a, r) => a + r[4], 0))]);
+  const wc = hoja(wb, "Por colaborador", ["Colaborador", "DNI", "Pagado S/", "Descontado S/", "Total S/"], filasCol, [2, 3, 4]);
+  wc.lastRow.font = { bold: true };
+  wc.orderNo = -1;
   const items = []; ls.forEach(l => { const v = vehiculo(l.vehId) || {}, trip = tripLiq(l); calc(l).lineas.forEach(x => items.push({ l, v, trip, x })); });
   hoja(wb, "Diferencias", COLS_DIF, filasDif(items), [13, 14], 11);
   guardarWb(wb, `reporte_liquidaciones_${REP.desde}${REP.hasta !== REP.desde ? "_al_" + REP.hasta : ""}.xlsx`);
