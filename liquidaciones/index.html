@@ -307,6 +307,8 @@ function infoEnvase(nombre, P) {
     let ml = null, m = n.match(/(\d+(?:[.,]\d+)?)\s*ML/);
     if (m) ml = parseFloat(m[1].replace(",", "."));
     else if ((m = n.match(/(\d+(?:[.,]\d+)?)\s*(LT|L)\b/))) ml = parseFloat(m[1].replace(",", ".")) * 1000;
+    // sin "ML": tomar un número suelto de 3-4 cifras como medida (ej. "BOTELLA AMBAR BUD 600 RT")
+    if (ml == null) { const s = n.match(/\b(\d{3,4})\b/); if (s && +s[1] >= 150 && +s[1] <= 3000) ml = +s[1]; }
     if (ml == null) return { tipo: "Botella (sin medida)", precio: null };
     return { tipo: "Botella " + ml + " ml", precio: ml >= 600 ? P.grande : P.chica };
   }
@@ -336,6 +338,7 @@ function calc(l) {
   r.sobr = r2(r.sobr); r.falt = r2(r.falt); r.prodMonto = r2(r.prodMonto);
   r.neto = r2(r.sobr + r.falt);
   r.aCobrar = r.neto < 0 ? r2(-r.neto) : 0;
+  r.aFavor = r.neto > 0 ? r.neto : 0;
   const cob = l.cobros || [];
   r.pagado = r2(cob.filter(c => c.tipo === "pago").reduce((a, c) => a + c.monto, 0));
   r.descontado = r2(cob.filter(c => c.tipo === "descuento").reduce((a, c) => a + c.monto, 0));
@@ -359,7 +362,7 @@ function ir(v) {
   VISTA = v;
   document.querySelectorAll(".side button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
   $("titulo").textContent = TITULOS[v];
-  $("topFecha").style.visibility = ["liquidar", "tripulacion"].includes(v) ? "visible" : "hidden";
+  $("topFecha").style.visibility = ["tripulacion"].includes(v) ? "visible" : "hidden";
   document.body.classList.remove("abierto");
   render();
 }
@@ -410,12 +413,29 @@ function asignarPdf(pdf, fecha, vehId) {
 // VISTA: Liquidaciones
 // =====================================================================
 let MSGS = [];
+let LF = { q: "", estado: "" };
 function vLiquidar(m) {
-  const vehs = S.vehiculos.filter(v => tripDia(FECHA, v.id).length || liqDe(FECHA, v.id));
-  const todas = Object.values(S.liqs).filter(l => l.fecha === FECHA);
-  let aC = 0, pg = 0, ds = 0, pend = 0;
-  todas.forEach(l => { const c = calc(l); aC += c.aCobrar; pg += c.pagado; ds += c.descontado; if (l.pdf && l.estado !== "cerrada") pend++; });
+  const delDia = S.vehiculos.filter(v => tripDia(FECHA, v.id).length || liqDe(FECHA, v.id));
+  const vehs = delDia.filter(v => {
+    const l = liqDe(FECHA, v.id);
+    const est = !l || !l.pdf ? "p" : l.estado === "cerrada" ? "c" : "e";
+    if (LF.estado && LF.estado !== est) return false;
+    if (!LF.q) return true;
+    const hay = sinTilde([v.placa, v.bk, l && l.pdf ? l.pdf.enc.viaje + " " + l.pdf.enc.placa : "",
+      ...tripDia(FECHA, v.id).map(t => t.p.nombre + " " + (t.p.dni || ""))].join(" "));
+    return sinTilde(LF.q).split(/\s+/).filter(Boolean).every(w => hay.includes(w) || norm(hay).includes(norm(w)));
+  });
+  const todas = Object.values(S.liqs).filter(l => l.fecha === FECHA && l.pdf);
+  let aC = 0, pg = 0, ds = 0, fav = 0, pend = 0;
+  todas.forEach(l => { const c = calc(l); aC += c.aCobrar; pg += c.pagado; ds += c.descontado; fav += c.aFavor; if (l.estado !== "cerrada") pend++; });
   m.innerHTML = `
+    <div class="card"><div class="row">
+      <label class="f">Fecha<input type="date" id="lFecha" value="${FECHA}"></label>
+      <label class="f grow">Buscar (nombre, DNI, placa, nombre comercial o viaje)<input id="lQ" value="${esc(LF.q)}" placeholder="Ej. 45879632, BMX-740, BK3788, Guillermo"></label>
+      <label class="f">Estado<select id="lEst"><option value="">Todos</option>
+        <option value="p" ${LF.estado === "p" ? "selected" : ""}>Pendiente</option><option value="e" ${LF.estado === "e" ? "selected" : ""}>En proceso</option><option value="c" ${LF.estado === "c" ? "selected" : ""}>Cerrada</option></select></label>
+      <button id="lLimpiar">Limpiar</button>
+    </div></div>
     <div class="kpis">
       <div class="kpi"><span>Vehículos del día</span><b>${vehs.length}</b></div>
       <div class="kpi"><span>Liquidaciones cerradas</span><b>${todas.filter(l => l.estado === "cerrada").length}</b></div>
@@ -423,6 +443,7 @@ function vLiquidar(m) {
       <div class="kpi"><span>A cobrar</span><b>${soles(aC, false)}</b></div>
       <div class="kpi"><span>Pagado</span><b class="pos">${soles(pg, false)}</b></div>
       <div class="kpi"><span>Descontado</span><b class="neg">${soles(ds, false)}</b></div>
+      <div class="kpi"><span>Sobrante a favor</span><b class="pos">${soles(r2(fav), false)}</b></div>
     </div>
     <div class="card">
       <div class="drop" id="dropGeneral"><b>Arrastra aquí los PDFs del día</b> o haz clic para elegirlos
@@ -431,9 +452,15 @@ function vLiquidar(m) {
     </div>
     <h2>FECHA: ${fmtF(FECHA)}</h2>
     ${vehs.length ? `<div class="grid-veh">${vehs.map(tarjetaVeh).join("")}</div>`
+      : delDia.length ? `<div class="card vacio">Ningún vehículo coincide con la búsqueda.</div>`
       : `<div class="card vacio">No hay tripulación asignada para esta fecha. Ve a <a href="#" id="irTrip">Tripulación del día</a> para armar los vehículos${S.vehiculos.length ? " (o usa “Copiar del día anterior”)" : ""}.</div>`}`;
   const it = $("irTrip"); if (it) it.onclick = e => { e.preventDefault(); ir("tripulacion"); };
 
+  $("lFecha").onchange = e => { FECHA = e.target.value || hoyISO(); $("fecha").value = FECHA; render(); };
+  const lq = $("lQ");
+  lq.oninput = () => { LF.q = lq.value; clearTimeout(lq._t); lq._t = setTimeout(() => { const pos = lq.selectionStart; render(); const n = $("lQ"); n.focus(); n.setSelectionRange(pos, pos); }, 250); };
+  $("lEst").onchange = e => { LF.estado = e.target.value; render(); };
+  $("lLimpiar").onclick = () => { LF = { q: "", estado: "" }; render(); };
   const dg = $("dropGeneral");
   dg.onclick = () => { $("filePdf").dataset.veh = ""; $("filePdf").click(); };
   dg.ondragover = e => { e.preventDefault(); dg.classList.add("over"); };
@@ -452,7 +479,8 @@ function tarjetaVeh(v) {
   const t = tripDia(FECHA, v.id), l = liqDe(FECHA, v.id), c = l ? calc(l) : null;
   let pie = `<span class="vacio" style="padding:0">Sin PDF — clic para liquidar</span>`;
   if (l && l.pdf) pie = c.aCobrar ? `<span>A cobrar <b class="neg">${soles(c.aCobrar, false)}</b>${c.pendiente > 0 ? ` · falta <b>${soles(c.pendiente, false)}</b>` : ""}</span>`
-    : `<span>Neto <b class="${cls(c.neto)}">${soles(c.neto)}</b> · sin cobro</span>`;
+    : c.aFavor ? `<span>Sobrante a favor <b class="pos">${soles(c.aFavor, false)}</b></span>`
+    : `<span>Neto <b>${soles(0, false)}</b> · sin cobro</span>`;
   return `<div class="veh" data-veh="${v.id}">
     <div class="vh"><span>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</span>${estadoTag(l)}</div>
     ${t.length ? `<table><thead><tr><th></th><th class="num">Función</th></tr></thead><tbody>
@@ -652,6 +680,7 @@ function seccionCobro(l, c, trip) {
   return `
     <h3>Cobro de la liquidación</h3>
     <div class="estado-cobro">
+      ${c.aFavor ? `<div>Sobrante a favor<br><b class="pos">${soles(c.aFavor, false)}</b></div>` : ""}
       <div>A cobrar (neto)<br><b>${soles(c.aCobrar, false)}</b></div>
       <div>Pagado<br><b class="pos">${soles(c.pagado, false)}</b></div>
       <div>Descuento<br><b class="neg">${soles(c.descontado, false)}</b></div>
@@ -723,15 +752,15 @@ function enlazarCobro(l, c, trip) {
 // =====================================================================
 // VISTA: Reporte de pagos y descuentos
 // =====================================================================
-let REP = { desde: null, hasta: null };
+let REP = { desde: null, hasta: null, q: "" };
 function liqsRango(d, h) { return Object.values(S.liqs).filter(l => l.pdf && l.fecha >= d && l.fecha <= h).sort((a, b) => a.fecha.localeCompare(b.fecha) || (vehiculo(a.vehId)?.placa || "").localeCompare(vehiculo(b.vehId)?.placa || "")); }
 function vReporte(m) {
   REP.desde = REP.desde || FECHA; REP.hasta = REP.hasta || FECHA;
-  const ls = liqsRango(REP.desde, REP.hasta);
-  let aC = 0, pg = 0, ds = 0, sob = 0, fal = 0;
+  const ls = liqsRango(REP.desde, REP.hasta).filter(l => coincideTexto(REP.q, l, vehiculo(l.vehId) || {}, tripLiq(l)));
+  let aC = 0, pg = 0, ds = 0, sob = 0, fal = 0, fav = 0;
   const porMedio = {}, porPersona = {};
   ls.forEach(l => {
-    const c = calc(l); aC += c.aCobrar; pg += c.pagado; ds += c.descontado; sob += c.sobr; fal += c.falt;
+    const c = calc(l); aC += c.aCobrar; pg += c.pagado; ds += c.descontado; sob += c.sobr; fal += c.falt; fav += c.aFavor;
     (l.cobros || []).forEach(x => {
       if (x.tipo === "pago") porMedio[x.medio] = r2((porMedio[x.medio] || 0) + x.monto);
       else { const k = (x.dni || "") + "|" + x.nombre; porPersona[k] = porPersona[k] || { nombre: x.nombre, dni: x.dni, monto: 0, n: 0 }; porPersona[k].monto = r2(porPersona[k].monto + x.monto); porPersona[k].n++; }
@@ -743,7 +772,7 @@ function vReporte(m) {
       <label class="f">Desde<input type="date" id="rDesde" value="${REP.desde}"></label>
       <label class="f">Hasta<input type="date" id="rHasta" value="${REP.hasta}"></label>
       <button id="rHoy">Hoy</button>
-      <div class="grow"></div>
+      <label class="f grow">Buscar (nombre, DNI, placa, nombre comercial o viaje)<input id="rQ" value="${esc(REP.q)}" placeholder="Ej. 45879632, BMX-740, BK3788"></label>
       <button class="primary" id="rExcel" ${ls.length ? "" : "disabled"}>Exportar Excel</button>
     </div></div>
     ${pend ? `<div class="card m-warn" style="padding:10px 14px">⚠ Hay ${pend} liquidación(es) sin cerrar en este rango.</div>` : ""}
@@ -754,6 +783,7 @@ function vReporte(m) {
       <div class="kpi"><span>Total a cobrar</span><b>${soles(r2(aC), false)}</b></div>
       <div class="kpi"><span>Total pagado</span><b class="pos">${soles(r2(pg), false)}</b></div>
       <div class="kpi"><span>Total descuento</span><b class="neg">${soles(r2(ds), false)}</b></div>
+      <div class="kpi"><span>Sobrante a favor</span><b class="pos">${soles(r2(fav), false)}</b></div>
     </div>
     <div class="dos" style="grid-template-columns:1fr 1fr">
       <div class="card"><h2>Pagos por medio</h2>${Object.keys(porMedio).length ? `<table><thead><tr><th>Medio</th><th class="num">Monto</th></tr></thead><tbody>
@@ -764,18 +794,20 @@ function vReporte(m) {
         <tr><td colspan="2"><b>Total</b></td><td class="num"><b>${soles(r2(ds), false)}</b></td></tr></tbody></table>` : `<div class="vacio">Sin descuentos.</div>`}</div>
     </div>
     <div class="card scroll"><h2>Detalle por liquidación</h2>
-      ${ls.length ? `<table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Nº viaje</th><th>Estado</th><th class="num">Neto</th><th class="num">A cobrar</th><th class="num">Pagado</th><th class="num">Descuento</th><th></th></tr></thead><tbody>
+      ${ls.length ? `<table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Nº viaje</th><th>Estado</th><th class="num">Neto</th><th class="num">A favor</th><th class="num">A cobrar</th><th class="num">Pagado</th><th class="num">Descuento</th><th></th></tr></thead><tbody>
       ${ls.map(l => { const c = calc(l), v = vehiculo(l.vehId) || {}; return `<tr>
         <td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}</td><td>${esc(l.pdf.enc.viaje)}</td><td>${estadoTag(l)}</td>
-        <td class="num ${cls(c.neto)}">${soles(c.neto)}</td><td class="num">${soles(c.aCobrar, false)}</td><td class="num pos">${soles(c.pagado, false)}</td><td class="num neg">${soles(c.descontado, false)}</td>
+        <td class="num ${cls(c.neto)}">${soles(c.neto)}</td><td class="num pos">${c.aFavor ? soles(c.aFavor, false) : "—"}</td><td class="num">${soles(c.aCobrar, false)}</td><td class="num pos">${soles(c.pagado, false)}</td><td class="num neg">${soles(c.descontado, false)}</td>
         <td><button data-ver="${l.id}">Ver detalle</button> <button data-desg="${l.id}">▾</button></td></tr>
-        <tr class="det" id="d_${l.id}"><td colspan="9">${(l.cobros || []).length ? (l.cobros.map(x => `<div>${x.tipo === "pago" ? "💵 Pago" : "📉 Descuento"} · ${esc(x.nombre)}${x.dni ? " (" + esc(x.dni) + ")" : ""} · ${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") : (x.modo === "tripulacion" ? "partes iguales" : "")} · <b>${soles(x.monto, false)}</b></div>`).join("")) : `<span class="vacio">Sin pagos ni descuentos.</span>`}
+        <tr class="det" id="d_${l.id}"><td colspan="10">${(l.cobros || []).length ? (l.cobros.map(x => `<div>${x.tipo === "pago" ? "💵 Pago" : "📉 Descuento"} · ${esc(x.nombre)}${x.dni ? " (" + esc(x.dni) + ")" : ""} · ${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") : (x.modo === "tripulacion" ? "partes iguales" : "")} · <b>${soles(x.monto, false)}</b></div>`).join("")) : `<span class="vacio">Sin pagos ni descuentos.</span>`}
           <div class="ayuda" style="margin-top:6px">Tripulación: ${tripLiq(l).map(t => esc(t.nombre) + " (" + esc(t.funcion) + ")").join(", ") || "—"}</div></td></tr>`; }).join("")}
       </tbody></table>` : `<div class="vacio">No hay liquidaciones en este rango.</div>`}
     </div>`;
   $("rDesde").onchange = e => { REP.desde = e.target.value; render(); };
   $("rHasta").onchange = e => { REP.hasta = e.target.value; render(); };
   $("rHoy").onclick = () => { REP.desde = REP.hasta = hoyISO(); render(); };
+  const rq = $("rQ");
+  rq.oninput = () => { REP.q = rq.value; clearTimeout(rq._t); rq._t = setTimeout(() => { const pos = rq.selectionStart; render(); const n = $("rQ"); n.focus(); n.setSelectionRange(pos, pos); }, 300); };
   m.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => abrirLiqId(b.dataset.ver));
   m.querySelectorAll("[data-desg]").forEach(b => b.onclick = () => $("d_" + b.dataset.desg).classList.toggle("on"));
   $("rExcel").onclick = () => exportarReporte(ls);
@@ -1080,9 +1112,9 @@ async function guardarWb(wb, nombre) {
 function filasLiq(ls) {
   return ls.map(l => { const c = calc(l), v = vehiculo(l.vehId) || {}, e = l.pdf.enc;
     return [fmtF(l.fecha), v.placa, v.bk, e.viaje, e.placa, e.conductor, e.revisor, tripLiq(l).map(t => `${t.nombre} (${t.funcion})`).join(", "),
-      l.estado === "cerrada" ? "Cerrada" : "En proceso", c.bot, c.caj, c.sobr, c.falt, c.neto, c.aCobrar, c.pagado, c.descontado, c.pendiente]; });
+      l.estado === "cerrada" ? "Cerrada" : "En proceso", c.bot, c.caj, c.sobr, c.falt, c.neto, c.aFavor, c.aCobrar, c.pagado, c.descontado, c.pendiente]; });
 }
-const COLS_LIQ = ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Placa PDF", "Conductor PDF", "Revisor", "Tripulación", "Estado", "Botellas", "Cajas", "Sobrante S/", "Faltante S/", "Neto S/", "A cobrar S/", "Pagado S/", "Descuento S/", "Pendiente S/"];
+const COLS_LIQ = ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Placa PDF", "Conductor PDF", "Revisor", "Tripulación", "Estado", "Botellas", "Cajas", "Sobrante S/", "Faltante S/", "Neto S/", "Sobrante a favor S/", "A cobrar S/", "Pagado S/", "Descuento S/", "Pendiente S/"];
 function filasCobros(ls, tipo) {
   const out = [];
   ls.forEach(l => { const v = vehiculo(l.vehId) || {};
@@ -1098,7 +1130,7 @@ function filasDif(items) {
 const COLS_DIF = ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Tripulación", "DNI tripulación", "Sección", "Código", "Descripción", "Conductor (cant.)", "Sistema (cant.)", "Diferencia", "Tipo envase", "Precio", "Dinero S/"];
 function exportarReporte(ls) {
   const wb = new ExcelJS.Workbook();
-  hoja(wb, "Liquidaciones", COLS_LIQ, filasLiq(ls), [11, 12, 13, 14, 15, 16, 17], 13);
+  hoja(wb, "Liquidaciones", COLS_LIQ, filasLiq(ls), [11, 12, 13, 14, 15, 16, 17, 18], 13);
   hoja(wb, "Pagos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Pagó", "DNI", "Medio", "Nº operación", "Monto S/"], filasCobros(ls, "pago"), [8]);
   hoja(wb, "Descuentos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Persona", "DNI", "Tipo", "Monto S/"], filasCobros(ls, "descuento"), [7]);
   const items = []; ls.forEach(l => { const v = vehiculo(l.vehId) || {}, trip = tripLiq(l); calc(l).lineas.forEach(x => items.push({ l, v, trip, x })); });
