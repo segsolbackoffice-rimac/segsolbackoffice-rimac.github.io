@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lector de Liquidaciones de Inventario</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+  :root{
+    --bg:#f5f6fa; --card:#fff; --line:#e3e5ee; --soft:#f4f5f9; --ink:#1e2233; --muted:#6b7187;
+    --brand:#3b3591; --brand-2:#5a52c9; --red:#c62828; --red-bg:#fdecec; --green:#1e8e3e; --green-bg:#e7f6ec;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,Segoe UI,system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+  header{background:var(--brand);color:#fff;padding:18px 24px}
+  header h1{margin:0;font-size:20px;font-weight:700}
+  header p{margin:4px 0 0;opacity:.8;font-size:13px}
+  main{max-width:1200px;margin:0 auto;padding:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .drop{border:2px dashed #b9b4ee;background:#f7f6ff;border-radius:10px;padding:26px;text-align:center;cursor:pointer;transition:.15s}
+  .drop.over{background:#ece9ff;border-color:var(--brand-2)}
+  .drop b{color:var(--brand)}
+  .drop small{display:block;color:var(--muted);margin-top:6px}
+  .precios label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+  .precios input{width:110px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font:inherit}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .kpi span{display:block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .kpi b{display:block;font-size:22px;margin-top:4px;font-variant-numeric:tabular-nums}
+  .pos{color:var(--green)} .neg{color:var(--red)}
+  button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:500}
+  button:hover{background:var(--soft)}
+  button.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+  button.primary:hover{background:var(--brand-2)}
+  button:disabled{opacity:.5;cursor:default}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left;padding:8px;border-bottom:1px solid var(--line);font-weight:600;white-space:nowrap}
+  td{padding:8px;border-bottom:1px solid var(--line)}
+  td.num,th.num{text-align:right}
+  tbody tr.click{cursor:pointer} tbody tr.click:hover{background:var(--soft)}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+  .tag.pos{background:var(--green-bg)} .tag.neg{background:var(--red-bg)} .tag.ok{background:var(--soft);color:var(--muted)}
+  .detalle-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .detalle-top h2{margin:0;color:var(--brand);font-size:18px}
+  .enc{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px}
+  .enc span{display:block;font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600;letter-spacing:.03em}
+  .enc b{display:block;margin-top:3px}
+  h3{font-size:14px;margin:18px 0 6px;display:flex;align-items:center;gap:8px}
+  .vacio{color:var(--muted);font-size:13px;padding:6px 0}
+  .msgs{font-size:13px;margin-top:10px}
+  .msgs div{padding:4px 0}
+  .msg-ok{color:var(--green)} .msg-warn{color:#a66300} .msg-err{color:var(--red)}
+  .x{border:none;background:none;color:var(--muted);padding:4px 8px}
+  .x:hover{color:var(--red);background:none}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;transition:.2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .scroll{overflow-x:auto}
+  @media(max-width:640px){main{padding:12px}.kpi b{font-size:18px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Lector de Liquidaciones de Inventario</h1>
+  <p>Sube los PDF "Acuerdo de liquidación de inventario". Todo se procesa en tu navegador: no se envía nada a ningún servidor.</p>
+</header>
+<main>
+  <div class="card">
+    <div class="drop" id="drop">
+      <b>Arrastra aquí tus PDFs</b> o haz clic para elegirlos
+      <small>Puedes subir varios a la vez. Si un viaje se repite, se queda el reproceso más alto (R1, R2…).</small>
+      <input type="file" id="file" accept="application/pdf,.pdf" multiple hidden>
+    </div>
+    <div class="msgs" id="msgs"></div>
+  </div>
+
+  <div class="card">
+    <div class="row precios">
+      <label>Caja (S/)<input type="number" step="0.01" id="pCaja" value="3.80"></label>
+      <label>Botella ≥ 600 ml (S/)<input type="number" step="0.01" id="pGrande" value="0.60"></label>
+      <label>Botella &lt; 600 ml (S/)<input type="number" step="0.01" id="pChica" value="0.50"></label>
+      <div style="flex:1"></div>
+      <button id="btnCopiar" disabled>Copiar diferencias</button>
+      <button id="btnExcel" class="primary" disabled>Exportar Excel</button>
+      <button id="btnLimpiar" disabled>Limpiar todo</button>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span>Viajes</span><b id="kViajes">0</b></div>
+    <div class="kpi"><span>Sobrante</span><b id="kSobr" class="pos">S/ 0.00</b></div>
+    <div class="kpi"><span>Faltante</span><b id="kFalt" class="neg">S/ 0.00</b></div>
+    <div class="kpi"><span>Neto</span><b id="kNeto">S/ 0.00</b></div>
+  </div>
+
+  <div class="card" id="detalle" hidden></div>
+
+  <div class="card">
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Fecha entrega</th><th>Nº viaje</th><th>Placa</th><th>Conductor</th><th>Revisor</th>
+          <th class="num">Dif. prod.</th><th class="num">Botellas</th><th class="num">Cajas</th>
+          <th class="num">Sobrante</th><th class="num">Faltante</th><th class="num">Neto</th><th></th>
+        </tr></thead>
+        <tbody id="tabla"><tr><td colspan="12" class="vacio">Aún no hay liquidaciones cargadas.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== Lector de "Acuerdo de liquidación de inventario" (independiente de la versión de pdf.js) =====
+const SECCIONES = { "productos": "Productos", "bloqueados": "Bloqueados", "vacíos": "Vacíos", "vacios": "Vacíos", "activos": "Activos" };
+const RE_RATIO = /^(\d+)\/(\d+)$/, RE_NUM = /^\d+$/, RE_DEN = /^\/(\d+)$/, RE_FECHA = /^\d{2}\/\d{2}\/\d{4}$/;
+
+// items: [{str, x, top}] (top = distancia desde arriba). Une "3624" + "/1044" partidos en dos renglones.
+function unirRatiosPartidos(items) {
+  const usados = new Set(), nuevos = [];
+  items.forEach((d, i) => {
+    if (!RE_DEN.test(d.str)) return;
+    let mejor = -1;
+    items.forEach((n, j) => {
+      if (usados.has(j) || !RE_NUM.test(n.str)) return;
+      const dy = d.top - n.top;
+      if (Math.abs(n.x - d.x) < 8 && dy > 0 && dy < 20 && (mejor < 0 || dy < d.top - items[mejor].top)) mejor = j;
+    });
+    if (mejor >= 0) {
+      const n = items[mejor];
+      usados.add(i); usados.add(mejor);
+      nuevos.push({ str: n.str + d.str, x: n.x, top: (n.top + d.top) / 2 });
+    }
+  });
+  return items.filter((_, k) => !usados.has(k)).concat(nuevos);
+}
+
+function agruparFilas(items, tol = 4) {
+  const filas = [];
+  [...items].sort((a, b) => a.top - b.top || a.x - b.x).forEach(it => {
+    const f = filas[filas.length - 1];
+    if (f && Math.abs(f.top - it.top) <= tol) f.items.push(it);
+    else filas.push({ top: it.top, items: [it] });
+  });
+  filas.forEach(f => {
+    f.items.sort((a, b) => a.x - b.x);
+    f.tokens = []; // cada token conserva la x de su item
+    f.items.forEach(it => it.str.split(/\s+/).filter(Boolean).forEach(t => f.tokens.push({ t, x: it.x })));
+    f.texto = f.tokens.map(o => o.t).join(" ");
+  });
+  return filas;
+}
+
+// paginas: [{width, items:[{str,x,top}]}]
+function parsearLiquidacion(paginas) {
+  const enc = { conductor: "", viaje: "", placa: "", fechaEntrega: "", fechaRevision: "", revisor: "" };
+  const lineas = [];
+  let seccion = null;
+  for (const pag of paginas) {
+    const items = unirRatiosPartidos(pag.items.filter(i => i.str && i.str.trim()).map(i => ({ ...i, str: i.str.trim() })));
+    const filas = agruparFilas(items);
+    const mitad = pag.width / 2;
+    filas.forEach((fila, k) => {
+      const t = fila.texto, toks = fila.tokens.map(o => o.t);
+      if (t.startsWith("Nombre del conductor") && filas[k + 1]) {
+        if (!enc.viaje) {
+          const vals = filas[k + 1].tokens.map(o => o.t);
+          const fechas = vals.filter(v => RE_FECHA.test(v)), otros = vals.filter(v => !RE_FECHA.test(v));
+          if (otros.length >= 3) {
+            [enc.conductor, enc.viaje, enc.placa] = otros;
+            enc.fechaEntrega = fechas[0] || ""; enc.fechaRevision = fechas[1] || "";
+          }
+        }
+        return;
+      }
+      if (t.includes("Firma del revisor") && filas[k + 1] && !enc.revisor) {
+        enc.revisor = filas[k + 1].tokens.filter(o => o.x < mitad).map(o => o.t).join(" ");
+        return;
+      }
+      const primera = (toks[0] || "").toLowerCase();
+      if (SECCIONES[primera] && t.includes("Inconsistencias")) { seccion = SECCIONES[primera]; return; }
+      if (!seccion) return;
+      const iR = toks.findIndex(x => RE_RATIO.test(x));
+      if (iR < 2) return;
+      const codigo = toks[iR - 1];
+      if (!RE_NUM.test(codigo)) return;
+      const [, x, y] = toks[iR].match(RE_RATIO);
+      lineas.push({ seccion, codigo, nombre: toks.slice(0, iR - 1).join(" "),
+        conductor: +x, sistema: +y, diferencia: (+x) - (+y) });
+    });
+  }
+  return { enc, lineas };
+}
+
+// Lee un PDF (ArrayBuffer) con pdf.js y devuelve {enc, lineas}
+async function leerPdf(pdfjsLib, buffer) {
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const paginas = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const vp = page.getViewport({ scale: 1 });
+    const tc = await page.getTextContent();
+    paginas.push({ width: vp.width, items: tc.items.map(it => ({ str: it.str, x: it.transform[4], top: vp.height - it.transform[5] })) });
+  }
+  return parsearLiquidacion(paginas);
+}
+
+
+
+// ================= Estado =================
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const LS = "liquidaciones_v1";
+let viajes = {};   // clave = viaje base
+let abierto = null;
+try { viajes = JSON.parse(localStorage.getItem(LS) || "{}"); } catch (e) {}
+const guardar = () => { try { localStorage.setItem(LS, JSON.stringify(viajes)); } catch (e) {} };
+
+const $ = id => document.getElementById(id);
+const precios = () => ({ caja: +$("pCaja").value || 0, grande: +$("pGrande").value || 0, chica: +$("pChica").value || 0 });
+const soles = n => (n < 0 ? "−" : n > 0 ? "+" : "") + "S/ " + Math.abs(n).toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const und = n => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toLocaleString("es-PE");
+const cls = n => n > 0 ? "pos" : n < 0 ? "neg" : "";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function toast(t) { const e = $("toast"); e.textContent = t; e.classList.add("show"); clearTimeout(e._t); e._t = setTimeout(() => e.classList.remove("show"), 2500); }
+
+function claveViaje(v) {
+  const m = String(v).trim().match(/^R(\d+)[-_ ]?(.+)$/i);
+  return m ? { base: m[2], rep: +m[1] } : { base: String(v).trim(), rep: 0 };
+}
+
+function infoEnvase(nombre) {
+  const n = nombre.toUpperCase(), p = precios();
+  if (n.includes("CAJA")) return { tipo: "Caja", precio: p.caja };
+  if (n.includes("BOTELLA")) {
+    let ml = null, m = n.match(/(\d+(?:[.,]\d+)?)\s*ML/);
+    if (m) ml = parseFloat(m[1].replace(",", "."));
+    else if ((m = n.match(/(\d+(?:[.,]\d+)?)\s*(LT|L)\b/))) ml = parseFloat(m[1].replace(",", ".")) * 1000;
+    if (ml == null) return { tipo: "Botella (sin medida)", precio: null };
+    return { tipo: "Botella " + ml + " ml", precio: ml >= 600 ? p.grande : p.chica };
+  }
+  return { tipo: "Otro", precio: null };
+}
+
+// Calcula diferencias y dinero de un viaje con los precios actuales
+function calcular(v) {
+  const r = { prod: 0, bloq: 0, act: 0, bot: 0, caj: 0, sobr: 0, falt: 0, lineas: [] };
+  for (const l of v.lineas) {
+    if (!l.diferencia) continue;
+    const x = { ...l, tipo: "", precio: null, dinero: null };
+    if (l.seccion === "Vacíos") {
+      const e = infoEnvase(l.nombre); x.tipo = e.tipo; x.precio = e.precio;
+      if (e.precio != null) { x.dinero = Math.round(l.diferencia * e.precio * 100) / 100; if (x.dinero > 0) r.sobr += x.dinero; else r.falt += x.dinero; }
+      if (e.tipo === "Caja") r.caj += l.diferencia; else if (e.tipo.startsWith("Botella")) r.bot += l.diferencia;
+    } else if (l.seccion === "Productos") r.prod += l.diferencia;
+    else if (l.seccion === "Bloqueados") r.bloq += l.diferencia;
+    else if (l.seccion === "Activos") r.act += l.diferencia;
+    r.lineas.push(x);
+  }
+  r.sobr = Math.round(r.sobr * 100) / 100; r.falt = Math.round(r.falt * 100) / 100;
+  r.neto = Math.round((r.sobr + r.falt) * 100) / 100;
+  return r;
+}
+
+const fechaOrden = f => { const [d, m, y] = (f || "").split("/"); return (y || "") + (m || "") + (d || ""); };
+const lista = () => Object.values(viajes).sort((a, b) => fechaOrden(a.enc.fechaEntrega).localeCompare(fechaOrden(b.enc.fechaEntrega)) || a.enc.viaje.localeCompare(b.enc.viaje));
+
+// ================= Carga de PDFs =================
+async function procesar(files) {
+  const msgs = $("msgs"); msgs.innerHTML = "";
+  const add = (c, t) => { const d = document.createElement("div"); d.className = c; d.textContent = t; msgs.appendChild(d); };
+  for (const f of files) {
+    if (!/\.pdf$/i.test(f.name)) { add("msg-warn", `${f.name}: no es PDF, omitido.`); continue; }
+    try {
+      const { enc, lineas } = await leerPdf(pdfjsLib, await f.arrayBuffer());
+      if (!enc.viaje || !lineas.length) { add("msg-err", `${f.name}: no parece un "Acuerdo de liquidación de inventario".`); continue; }
+      const { base, rep } = claveViaje(enc.viaje);
+      const prev = viajes[base];
+      if (prev && prev.rep > rep) { add("msg-warn", `${f.name}: viaje ${base} ya está cargado con R${prev.rep} (más reciente). Omitido.`); continue; }
+      if (prev && prev.rep === rep) { add("msg-warn", `${f.name}: viaje ${enc.viaje} ya estaba cargado. Se actualizó.`); }
+      else if (prev) add("msg-ok", `${f.name}: viaje ${base} reemplazado por el reproceso R${rep}.`);
+      viajes[base] = { base, rep, archivo: f.name, enc, lineas };
+      if (!prev) add("msg-ok", `${f.name}: viaje ${enc.viaje} – ${lineas.filter(l => l.diferencia).length} líneas con diferencia.`);
+    } catch (e) {
+      console.error(e); add("msg-err", `${f.name}: no se pudo leer (${e.message || e}).`);
+    }
+  }
+  guardar(); render();
+}
+
+const drop = $("drop"), file = $("file");
+drop.onclick = () => file.click();
+file.onchange = () => { procesar([...file.files]); file.value = ""; };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); procesar([...e.dataTransfer.files]); };
+["pCaja", "pGrande", "pChica"].forEach(id => $(id).oninput = render);
+
+// ================= Render =================
+function render() {
+  const vs = lista();
+  let S = 0, F = 0;
+  const filas = vs.map(v => {
+    const c = calcular(v); S += c.sobr; F += c.falt;
+    return `<tr class="click" data-k="${esc(v.base)}">
+      <td>${esc(v.enc.fechaEntrega)}</td><td><b>${esc(v.enc.viaje)}</b></td><td>${esc(v.enc.placa)}</td>
+      <td>${esc(v.enc.conductor)}</td><td>${esc(v.enc.revisor)}</td>
+      <td class="num ${cls(c.prod)}">${und(c.prod)}</td><td class="num ${cls(c.bot)}">${und(c.bot)}</td><td class="num ${cls(c.caj)}">${und(c.caj)}</td>
+      <td class="num pos">${soles(c.sobr)}</td><td class="num neg">${soles(c.falt)}</td><td class="num ${cls(c.neto)}"><b>${soles(c.neto)}</b></td>
+      <td><button class="x" data-del="${esc(v.base)}" title="Quitar">✕</button></td></tr>`;
+  });
+  $("tabla").innerHTML = filas.join("") || `<tr><td colspan="12" class="vacio">Aún no hay liquidaciones cargadas.</td></tr>`;
+  $("kViajes").textContent = vs.length;
+  $("kSobr").textContent = soles(S); $("kFalt").textContent = soles(F);
+  const N = Math.round((S + F) * 100) / 100; $("kNeto").textContent = soles(N); $("kNeto").className = cls(N);
+  ["btnCopiar", "btnExcel", "btnLimpiar"].forEach(id => $(id).disabled = !vs.length);
+  if (abierto && viajes[abierto]) mostrarDetalle(abierto); else { $("detalle").hidden = true; abierto = null; }
+}
+
+$("tabla").onclick = e => {
+  const del = e.target.closest("[data-del]");
+  if (del) { e.stopPropagation(); delete viajes[del.dataset.del]; guardar(); render(); return; }
+  const tr = e.target.closest("tr[data-k]");
+  if (tr) { mostrarDetalle(tr.dataset.k); $("detalle").scrollIntoView({ behavior: "smooth", block: "start" }); }
+};
+
+function tablaSeccion(nombre, total, lineas, conDinero) {
+  const ls = lineas.filter(l => l.seccion === nombre);
+  const tag = ls.length ? `<span class="tag neg">${ls.length} con diferencia</span>` : `<span class="tag ok">Sin diferencias</span>`;
+  if (!total) return `<h3>${nombre} <span class="tag ok">No figura en el PDF</span></h3>`;
+  if (!ls.length) return `<h3>${nombre} ${tag}</h3>`;
+  return `<h3>${nombre} ${tag}</h3><div class="scroll"><table><thead><tr>
+    <th>Código</th><th>Descripción</th><th class="num">Conductor</th><th class="num">Sistema</th><th class="num">Diferencia</th>
+    ${conDinero ? `<th>Tipo</th><th class="num">Precio</th><th class="num">Dinero</th>` : ""}</tr></thead><tbody>
+    ${ls.map(l => `<tr><td>${esc(l.codigo)}</td><td>${esc(l.nombre)}</td><td class="num">${l.conductor}</td><td class="num">${l.sistema}</td>
+      <td class="num"><span class="tag ${cls(l.diferencia)}">${und(l.diferencia)}</span></td>
+      ${conDinero ? `<td>${esc(l.tipo)}</td><td class="num">${l.precio == null ? "—" : l.precio.toFixed(2)}</td><td class="num ${cls(l.dinero || 0)}">${l.dinero == null ? "Sin precio" : soles(l.dinero)}</td>` : ""}
+    </tr>`).join("")}</tbody></table></div>`;
+}
+
+function mostrarDetalle(k) {
+  const v = viajes[k]; if (!v) return;
+  abierto = k;
+  const c = calcular(v), e = v.enc;
+  const secs = new Set(v.lineas.map(l => l.seccion));
+  $("detalle").hidden = false;
+  $("detalle").innerHTML = `
+    <div class="detalle-top"><h2>Detalle de liquidación</h2><button id="cerrar">✕ Cerrar</button></div>
+    <div class="enc">
+      <div><span>Conductor</span><b>${esc(e.conductor)}</b></div>
+      <div><span>Nº de viaje</span><b>${esc(e.viaje)}</b></div>
+      <div><span>Placa</span><b>${esc(e.placa)}</b></div>
+      <div><span>Fecha de entrega</span><b>${esc(e.fechaEntrega)}</b></div>
+      <div><span>Fecha de revisión</span><b>${esc(e.fechaRevision)}</b></div>
+      <div><span>Revisor</span><b>${esc(e.revisor)}</b></div>
+    </div>
+    <div class="kpis" style="margin-bottom:0">
+      <div class="kpi"><span>Botellas (neto)</span><b class="${cls(c.bot)}">${und(c.bot)}</b></div>
+      <div class="kpi"><span>Cajas (neto)</span><b class="${cls(c.caj)}">${und(c.caj)}</b></div>
+      <div class="kpi"><span>Sobrante</span><b class="pos">${soles(c.sobr)}</b></div>
+      <div class="kpi"><span>Faltante</span><b class="neg">${soles(c.falt)}</b></div>
+      <div class="kpi"><span>Neto</span><b class="${cls(c.neto)}">${soles(c.neto)}</b></div>
+    </div>
+    ${tablaSeccion("Productos", secs.has("Productos"), c.lineas, false)}
+    ${tablaSeccion("Bloqueados", secs.has("Bloqueados"), c.lineas, false)}
+    ${tablaSeccion("Vacíos", secs.has("Vacíos"), c.lineas, true)}
+    ${secs.has("Activos") ? tablaSeccion("Activos", true, c.lineas, false) : ""}
+    <p class="vacio">Archivo: ${esc(v.archivo)}${v.rep ? ` · Reproceso R${v.rep}` : ""}</p>`;
+  $("cerrar").onclick = () => { abierto = null; $("detalle").hidden = true; };
+}
+
+// ================= Exportar =================
+function filasDiferencias() {
+  const out = [];
+  for (const v of lista()) {
+    const c = calcular(v), e = v.enc;
+    for (const l of c.lineas) out.push([e.fechaEntrega, e.viaje, e.placa, e.conductor, e.revisor, l.seccion, l.codigo, l.nombre,
+      l.conductor, l.sistema, l.diferencia, l.tipo, l.precio, l.dinero]);
+  }
+  return out;
+}
+const COLS_DIF = ["Fecha entrega", "Nº viaje", "Placa", "Conductor", "Revisor", "Sección", "Código", "Descripción", "Conductor (cant.)", "Sistema (cant.)", "Diferencia", "Tipo envase", "Precio", "Dinero (S/)"];
+
+$("btnCopiar").onclick = async () => {
+  const tsv = [COLS_DIF, ...filasDiferencias()].map(r => r.map(x => x == null ? "" : String(x)).join("\t")).join("\n");
+  try { await navigator.clipboard.writeText(tsv); toast("Copiado. Pégalo en Excel o en un correo."); }
+  catch (e) { toast("No se pudo copiar en este navegador."); }
+};
+
+$("btnExcel").onclick = async () => {
+  const wb = new ExcelJS.Workbook();
+  const head = ws => ws.getRow(1).eachCell(c => { c.font = { bold: true, color: { argb: "FFFFFFFF" } }; c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF3B3591" } }; c.alignment = { horizontal: "center" }; });
+  const ROJO = { color: { argb: "FFC62828" }, bold: true }, VERDE = { color: { argb: "FF1E8E3E" }, bold: true };
+  const money = '#,##0.00;-#,##0.00';
+
+  const wr = wb.addWorksheet("Resumen", { views: [{ state: "frozen", ySplit: 1 }] });
+  wr.addRow(["Archivo", "Conductor", "Nº viaje", "Placa", "Fecha entrega", "Fecha revisión", "Revisor", "Dif. productos (und)", "Dif. bloqueados (und)", "Botellas (und)", "Cajas (und)", "Sobrante S/", "Faltante S/", "Neto S/"]);
+  for (const v of lista()) {
+    const c = calcular(v), e = v.enc;
+    const r = wr.addRow([v.archivo, e.conductor, e.viaje, e.placa, e.fechaEntrega, e.fechaRevision, e.revisor, c.prod, c.bloq, c.bot, c.caj, c.sobr, c.falt, c.neto]);
+    [12, 13, 14].forEach(i => r.getCell(i).numFmt = money);
+    r.getCell(14).font = c.neto < 0 ? ROJO : VERDE;
+  }
+  const tot = wr.addRow(["TOTAL", "", "", "", "", "", "", "", "", "", "",
+    { formula: `SUM(L2:L${wr.rowCount})` }, { formula: `SUM(M2:M${wr.rowCount})` }, { formula: `SUM(N2:N${wr.rowCount})` }]);
+  tot.font = { bold: true }; [12, 13, 14].forEach(i => tot.getCell(i).numFmt = money);
+  head(wr);
+
+  const wd = wb.addWorksheet("Diferencias", { views: [{ state: "frozen", ySplit: 1 }] });
+  wd.addRow(COLS_DIF);
+  for (const f of filasDiferencias()) {
+    const r = wd.addRow(f);
+    const font = f[10] > 0 ? VERDE : ROJO;
+    r.getCell(11).font = font;
+    if (f[13] != null) { r.getCell(14).font = font; r.getCell(14).numFmt = money; }
+  }
+  head(wd);
+  [wr, wd].forEach(ws => ws.columns.forEach(col => {
+    let w = 10; col.eachCell({ includeEmpty: false }, c => { w = Math.max(w, String(c.value && c.value.formula ? "0000000000" : c.value ?? "").length + 2); });
+    col.width = Math.min(w, 45);
+  }));
+
+  const buf = await wb.xlsx.writeBuffer();
+  const hoy = new Date().toISOString().slice(0, 10);
+  await descargar(`liquidaciones_${hoy}.xlsx`, new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+};
+
+// Descarga: en Claude usa su función de descargas; en cualquier otro sitio (GitHub Pages, tu PC) descarga normal.
+async function descargar(nombre, blob) {
+  if (window.claude && typeof window.claude.use === "function") {
+    try {
+      const dl = await window.claude.use("downloads");
+      if (dl) { await dl.save({ filename: nombre, data: blob }); toast("Excel descargado."); return; }
+    } catch (e) { if (e && e.code === "declined") return; }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast("Excel descargado.");
+}
+
+$("btnLimpiar").onclick = () => {
+  const b = $("btnLimpiar");
+  if (b.dataset.confirm) { viajes = {}; abierto = null; guardar(); render(); $("msgs").innerHTML = ""; delete b.dataset.confirm; b.textContent = "Limpiar todo"; return; }
+  b.dataset.confirm = "1"; b.textContent = "¿Seguro? Clic otra vez";
+  setTimeout(() => { delete b.dataset.confirm; b.textContent = "Limpiar todo"; }, 3000);
+};
+
+render();
+</script>
+</body>
+</html>
