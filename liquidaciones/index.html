@@ -986,7 +986,7 @@ function seccionAjustes(l) {
     </tbody></table></div>` : ""}
     ${cerrada ? "" : `<div class="cobro-form">
       <div class="row">
-        <label class="f">Código<select id="ajCod"><option value="ZPD7">ZPD7 – quita faltante</option><option value="ZPD4">ZPD4 – agrega faltante</option><option value="COMENTARIO">Solo comentario</option></select></label>
+        <label class="f">Código<select id="ajCod"><option value="" selected>— Elige una opción —</option><option value="ZPD7">ZPD7 – quita faltante</option><option value="ZPD4">ZPD4 – agrega faltante</option><option value="COMENTARIO">Solo comentario</option></select></label>
         <label class="f grow" id="ajMatW">Material<select id="ajMat">${mats.map(({ x, i }) => `<option value="${i}">${esc(x.seccion)} · ${esc(x.codigo)} — ${esc(x.nombre)} (PDF ${und(x.diferencia)})</option>`).join("")}</select></label>
         <label class="f" id="ajCantW">Cantidad<input id="ajCant" type="number" min="1" step="1" style="width:100px"></label>
       </div>
@@ -1001,11 +1001,12 @@ function enlazarAjustes(l) {
   const h = $("hoja");
   h.querySelectorAll("[data-delaj]").forEach(b => b.onclick = () => { l.ajustes = (l.ajustes || []).filter(a => a.id !== b.dataset.delaj); guardar(); pintarPanel(); render(); });
   const cod = $("ajCod"); if (!cod) return;
-  const toggle = () => { const sc = cod.value === "COMENTARIO"; $("ajCantW").style.display = sc ? "none" : ""; };
+  const toggle = () => { const sc = cod.value === "COMENTARIO" || !cod.value; $("ajCantW").style.display = sc ? "none" : ""; $("ajMatW").style.display = cod.value ? "" : "none"; };
   cod.onchange = toggle; toggle();
   $("ajAdd").onclick = () => {
     const err = t => $("ajErr").textContent = t;
     const codigo = cod.value, com = $("ajCom").value.trim();
+    if (!codigo) return err("Elige una opción: ZPD7, ZPD4 o Solo comentario.");
     const x = l.pdf.lineas[+$("ajMat").value];
     const a = { id: uid(), codigo, comentario: com, fecha: new Date().toISOString(), cantidad: 0, mat: "", seccion: "", codigoMat: "", nombre: "" };
     if (codigo === "COMENTARIO") {
@@ -1045,7 +1046,7 @@ function seccionCobro(l, c, trip) {
       ${FORM.tipo === "pago" ? `
       <div class="row">
         <label class="f grow">¿Quién paga?
-          <select id="cPersona">${opcTrip ? `<optgroup label="Tripulación">${opcTrip}</optgroup>` : ""}${otrasP ? `<optgroup label="Otro personal">${otrasP}</optgroup>` : ""}<option value="__otro">Otra persona (escribir)…</option></select></label>
+          <select id="cPersona">${opcTrip ? `<option value="" selected>— Elige un tripulante —</option>${opcTrip}` : `<option value="">— Este vehículo no tiene tripulación asignada —</option>`}</select></label>
         <label class="f" id="cOtroWrap" style="display:none">Nombre<input id="cOtroNombre" placeholder="Nombre completo"></label>
         <label class="f" id="cOtroDniWrap" style="display:none">DNI<input id="cOtroDni" placeholder="DNI" inputmode="numeric"></label>
         <label class="f">Medio<select id="cMedio">${MEDIOS.map(x => `<option>${x}</option>`).join("")}</select></label>
@@ -1138,7 +1139,7 @@ function enlazarCobro(l, c, trip) {
       const p = persona(sel.value); return p ? { personaId: p.id, nombre: p.nombre, dni: p.dni || "" } : null;
     };
     if (FORM.tipo === "pago") {
-      const q = quien(); if (!q) return err("Indica quién realiza el pago.");
+      const q = quien(); if (!q) return err(trip.length ? "Elige quién de la tripulación realiza el pago." : "Este vehículo no tiene tripulación asignada: asígnala en Tripulación del día.");
       l.cobros.push({ id: uid(), tipo: "pago", ...q, medio: $("cMedio").value, operacion: $("cOp").value.trim(), monto, modo: "persona", fecha: new Date().toISOString() });
     } else if (FORM.modo === "tripulacion") {
       if (!trip.length) return err("No hay tripulación asignada.");
