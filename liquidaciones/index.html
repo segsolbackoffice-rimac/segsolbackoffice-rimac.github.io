@@ -124,6 +124,14 @@
   .dia-h b{color:var(--ink)} .dia-h .pos b,.dia-h b.pos{color:var(--green)} .dia-h b.neg{color:var(--red)}
   .dia-f{min-width:190px;color:var(--ink);font-size:13.5px} .dia-f small{color:var(--muted);text-transform:capitalize}
   .dia-row.on .dia-h{background:var(--head);border-bottom:1px solid var(--line)}
+  .barra{height:8px;background:var(--soft);border-radius:9px;overflow:hidden;margin:12px 0}
+  .barra i{display:block;height:100%;width:3%;background:var(--brand);transition:width .2s}
+  .imp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:12px;align-items:start}
+  .imp-b{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .imp-b.off{opacity:.45}
+  .imp-b .vh{background:var(--head);padding:8px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .imp-b .vh input{padding:4px 6px;font-weight:700;color:#2b3a75}
+  .imp-b table{table-layout:fixed} .imp-b td{padding:4px 6px} .imp-b select,.imp-b td input{font-size:12px;padding:4px 6px;width:100%}
   input.precio{width:80px;text-align:right;padding:4px 6px}
 </style>
 </head>
@@ -155,6 +163,7 @@
 <div class="toast" id="toast"></div>
 <input type="file" id="filePdf" accept="application/pdf,.pdf" multiple hidden>
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
+<input type="file" id="fileTrip" accept="image/*,.pdf,application/pdf,.xlsx" hidden>
 
 <script>
 // ===== Lector de "Acuerdo de liquidación de inventario" (independiente de la versión de pdf.js) =====
@@ -250,6 +259,74 @@ async function leerPdf(pdfjsLib, buffer) {
   }
   return parsearLiquidacion(paginas);
 }
+
+
+// ===== Lector de la hoja de tripulación (imagen / PDF / Excel) =====
+// Recibe palabras con posición {t, x0, x1, yc, h} y arma los bloques: placa, BK y tripulantes con su cargo.
+const _st = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const RE_PLACA_T = /^(?:[A-Z]{2})?(?=[A-Z0-9]{0,2}[A-Z])[A-Z0-9]{3}-?\d{3}$/;
+const RE_FECHA_T = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/;
+function rolTrip(t) {
+  const s = _st(t).replace(/[^a-z]/g, "");
+  if (/^(chofer|chofe|conductor|piloto)/.test(s)) return "CHOFER";
+  if (/^repart/.test(s)) return "REPARTO";
+  if (/^auxiliar/.test(s) || s === "aux") return "AUXILIAR";
+  if (/^apoyo/.test(s)) return "AUXILIAR APOYO";
+  return null;
+}
+const limpiaPlaca = t => String(t).toUpperCase().replace(/[^A-Z0-9-]/g, "");
+const esPlaca = t => RE_PLACA_T.test(limpiaPlaca(t)) && /\d/.test(t);
+const esBK = t => /^BK[0-9OIl]{1,5}$/i.test(String(t).replace(/[^A-Za-z0-9]/g, ""));
+const limpiaBK = t => { const x = String(t).replace(/[^A-Za-z0-9]/g, "").toUpperCase(); return "BK" + x.slice(2).replace(/O/g, "0").replace(/[IL]/g, "1"); };
+const mediana = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; };
+
+function parseTripulacion(words) {
+  words = words.map(w => ({ ...w, t: String(w.t).trim(), xc: (w.x0 + w.x1) / 2 }))
+    .filter(w => w.t && /[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ]/.test(w.t));
+  const hMed = mediana(words.map(w => w.h)) || 12, tol = hMed * 0.6;
+  // fecha (la primera con formato dd/mm/aaaa)
+  let fecha = null;
+  const fw = words.find(w => RE_FECHA_T.test(w.t));
+  if (fw) { const [, d, m, y] = fw.t.match(RE_FECHA_T); const yy = y.length === 2 ? "20" + y : y; fecha = `${yy}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`; }
+  const placas = words.filter(w => esPlaca(w.t));
+  if (!placas.length) return { fecha, bloques: [] };
+  // filas de placas y espaciado
+  const filasP = [];
+  [...placas].sort((a, b) => a.yc - b.yc).forEach(p => { const f = filasP.find(f => Math.abs(f.yc - p.yc) <= tol * 2); if (f) f.items.push(p); else filasP.push({ yc: p.yc, items: [p] }); });
+  filasP.forEach(f => f.items.sort((a, b) => a.xc - b.xc));
+  const espX = mediana(filasP.flatMap(f => f.items.slice(1).map((p, i) => p.xc - f.items[i].xc)));
+  const espY = mediana(filasP.slice(1).map((f, i) => f.yc - filasP[i].yc));
+  const usados = new Set();
+  const bloques = [];
+  filasP.forEach((fila, fi) => fila.items.forEach((p, pi) => {
+    const izq = fila.items[pi - 1], der = fila.items[pi + 1];
+    const half = espX ? espX / 2 : Infinity;
+    const xa = izq ? (izq.xc + p.xc) / 2 : p.xc - half, xb = der ? (p.xc + der.xc) / 2 : p.xc + half;
+    const abajo = filasP.slice(fi + 1).flatMap(f => f.items).filter(q => q.xc > xa && q.xc < xb).sort((a, b) => a.yc - b.yc)[0];
+    const ya = p.yc + tol, yb = abajo ? abajo.yc - tol : (espY ? p.yc + espY - tol : Infinity);
+    const dentro = words.filter(w => w !== p && w.xc > xa && w.xc < xb && w.yc > ya && w.yc < yb && !esPlaca(w.t) && !RE_FECHA_T.test(w.t));
+    // BK: el más cercano debajo de la placa
+    const bkW = dentro.filter(w => esBK(w.t)).sort((a, b) => a.yc - b.yc)[0];
+    const resto = dentro.filter(w => w !== bkW);
+    // filas de texto
+    const filas = [];
+    resto.sort((a, b) => a.yc - b.yc).forEach(w => { const f = filas.find(f => Math.abs(f.yc - w.yc) <= tol); if (f) f.ws.push(w); else filas.push({ yc: w.yc, ws: [w] }); });
+    const miembros = []; let rol = null;
+    filas.sort((a, b) => a.yc - b.yc).forEach(f => {
+      f.ws.sort((a, b) => a.x0 - b.x0);
+      const iRol = f.ws.findIndex(w => rolTrip(w.t));
+      let nombreWs;
+      if (iRol >= 0) { rol = rolTrip(f.ws[iRol].t); nombreWs = f.ws.filter((w, i) => i !== iRol && w.x0 >= f.ws[iRol].x0); }
+      else nombreWs = f.ws;
+      const nombre = nombreWs.map(w => w.t).join(" ").replace(/\s+/g, " ").trim();
+      if (!rol || !nombre || /^[\W_]+$/.test(nombre)) return;
+      miembros.push({ funcion: rol, nombre: nombre.toUpperCase() });
+    });
+    bloques.push({ placa: limpiaPlaca(p.t), bk: bkW ? limpiaBK(bkW.t) : "", miembros, orden: fi * 1000 + pi });
+  }));
+  return { fecha, bloques: bloques.sort((a, b) => a.orden - b.orden) };
+}
+
 
 
 </script>
@@ -482,7 +559,7 @@ let MSGS = [];
 let LF = { q: "", estado: "" };
 let EXP = { desde: null, hasta: null };
 function vLiquidar(m) {
-  const delDia = S.vehiculos.filter(v => tripDia(FECHA, v.id).length || liqDe(FECHA, v.id));
+  const delDia = vehiculosDelDia(FECHA);
   const vehs = delDia.filter(v => {
     const l = liqDe(FECHA, v.id);
     const est = !l || !l.pdf ? "p" : l.estado === "cerrada" ? "c" : "e";
@@ -1173,9 +1250,14 @@ function vColab(m) {
 // VISTA: Tripulación del día (arrastrar personas a los vehículos)
 // =====================================================================
 let BUSCA_P = "";
-let HIST_ABIERTO = new Set();
+let HIST_ABIERTO = new Set(), HIST_CERRADO = new Set(), HIST_TODAS = false;
 const hayQ = (q, txt) => !q || sinTilde(q).split(/\s+/).filter(Boolean).every(w => sinTilde(txt).includes(w) || norm(txt).includes(norm(w)));
 // todas las filas (vehículo) de una fecha: tripulación asignada y/o liquidación cargada
+function vehiculosDelDia(fecha) {
+  const ids = new Set(Object.keys(S.dias[fecha] || {}));
+  Object.values(S.liqs).forEach(l => { if (l.fecha === fecha && l.pdf) ids.add(l.vehId); });
+  return S.vehiculos.filter(v => ids.has(v.id));
+}
 function filasDia(fecha) {
   const ids = new Set(Object.keys(S.dias[fecha] || {}));
   Object.values(S.liqs).forEach(l => { if (l.fecha === fecha && l.pdf) ids.add(l.vehId); });
@@ -1190,19 +1272,27 @@ function vTripulacion(m) {
   const dia = S.dias[FECHA] || {};
   const asignados = new Set(Object.values(dia).flat().map(t => t.personaId));
   const lista = S.personal.filter(p => hayQ(BUSCA_P, p.nombre + " " + p.dni));
-  const vehsF = S.vehiculos.filter(v => hayQ(BUSCA_P, [v.placa, v.bk, ...tripDia(FECHA, v.id).map(t => t.p.nombre + " " + (t.p.dni || ""))].join(" ")));
+  const delDia = vehiculosDelDia(FECHA);
+  const vehsF = delDia.filter(v => hayQ(BUSCA_P, [v.placa, v.bk, ...tripDia(FECHA, v.id).map(t => t.p.nombre + " " + (t.p.dni || ""))].join(" ")));
+  const fuera = S.vehiculos.filter(v => !delDia.includes(v));
   // historial
-  const fechas = [...new Set([...Object.keys(S.dias).filter(d => Object.keys(S.dias[d]).length), ...Object.values(S.liqs).filter(l => l.pdf).map(l => l.fecha)])].sort().reverse();
-  const hist = fechas.map(fe => ({ fe, filas: filasDia(fe).filter(r => hayQ(BUSCA_P, r.txt)) })).filter(h => h.filas.length);
+  const fechas = [...new Set([...Object.keys(S.dias).filter(d => Object.values(S.dias[d]).some(x => x.length)), ...Object.values(S.liqs).filter(l => l.pdf).map(l => l.fecha)])].sort().reverse();
+  const hist = fechas.filter(fe => BUSCA_P || HIST_TODAS || fe === FECHA)
+    .map(fe => ({ fe, filas: filasDia(fe).filter(r => hayQ(BUSCA_P, r.txt)) })).filter(h => h.filas.length);
   m.innerHTML = `
     <div class="card"><div class="row">
       <label class="f">Fecha<input type="date" id="trFecha" value="${FECHA}"></label>
       <label class="f grow">Buscar (nombre, DNI, placa, nombre comercial o viaje)<input id="trBusca" value="${esc(BUSCA_P)}" placeholder="Ej. 45879632, BMX-740, BK3788, Guillermo"></label>
       <button id="trLimpiar">Limpiar</button>
+      <button class="primary" id="trImportar">📷 Importar tripulación (imagen, PDF o Excel)</button>
       <button id="trCopiar">Copiar del día anterior</button>
       <button class="danger" id="trVaciar" ${Object.keys(dia).length ? "" : "disabled"}>Vaciar día</button>
     </div>
-    <p class="ayuda" style="margin:8px 0 0">Arrastra a cada persona hacia su vehículo (o usa “+ Agregar” en la tarjeta). La tripulación queda registrada para el <b>${fmtF(FECHA)}</b>.</p></div>
+    <div class="row" style="margin-top:10px;align-items:center">
+      <span class="ayuda" style="margin:0">Se muestran solo los vehículos que salieron el <b>${fmtF(FECHA)}</b>${BUSCA_P ? " y coinciden con la búsqueda" : ""}. Arrastra a cada persona hacia su vehículo (o usa “+ Agregar” en la tarjeta).</span>
+      <div class="grow"></div>
+      <select id="trAddVeh" ${fuera.length ? "" : "disabled"}><option value="">+ Agregar vehículo a este día…</option>${fuera.map(v => `<option value="${v.id}">${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</option>`).join("")}</select>
+    </div></div>
     ${!S.vehiculos.length || !S.personal.length ? `<div class="card m-warn">Primero registra ${!S.vehiculos.length ? "<b>vehículos</b>" : ""}${!S.vehiculos.length && !S.personal.length ? " y " : ""}${!S.personal.length ? "<b>personal</b>" : ""} en sus apartados del menú.</div>` : ""}
     <div class="dos">
       <div class="card"><h2>Personal (${lista.length}${lista.length !== S.personal.length ? " de " + S.personal.length : ""})</h2>
@@ -1211,7 +1301,7 @@ function vTripulacion(m) {
       <div class="grid-veh">${vehsF.length ? vehsF.map(v => {
         const t = tripDia(FECHA, v.id);
         return `<div class="veh" data-vt="${v.id}" style="cursor:default">
-          <div class="vh"><span>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</span><span class="tag azul">${t.length}</span></div>
+          <div class="vh"><span>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</span><span><span class="tag azul">${t.length}</span>${liqDe(FECHA, v.id) && liqDe(FECHA, v.id).pdf ? "" : `<button class="x" data-quitveh="${v.id}" title="Quitar vehículo de este día">✕</button>`}</span></div>
           ${t.length ? `<table><thead><tr><th></th><th class="num">Función</th><th></th></tr></thead><tbody>${t.map(x => `<tr>
             <td>${esc(x.p.nombre)}${x.p.dni ? `<br><small class="ayuda">DNI ${esc(x.p.dni)}</small>` : ""}</td>
             <td class="num"><select data-fun="${v.id}|${x.personaId}" style="padding:2px 4px;font-size:11px">${FUNCIONES.concat(FUNCIONES.includes(x.funcion) ? [] : [x.funcion]).map(f => `<option ${f === x.funcion ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></td>
@@ -1219,12 +1309,13 @@ function vTripulacion(m) {
             : `<div class="sin">Suelta aquí a la tripulación</div>`}
           <div class="vf"><select data-add="${v.id}" style="width:100%;font-size:12px"><option value="">+ Agregar persona…</option>
             ${S.personal.filter(p => !asignados.has(p.id)).map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></div>
-        </div>`; }).join("") : `<div class="card vacio">Ningún vehículo coincide con la búsqueda.</div>`}</div>
+        </div>`; }).join("") : `<div class="card vacio">${delDia.length ? "Ningún vehículo coincide con la búsqueda." : `No hay vehículos registrados para el ${fmtF(FECHA)}. Usa <b>📷 Importar tripulación</b>, <b>Copiar del día anterior</b> o <b>+ Agregar vehículo a este día</b>.`}</div>`}</div>
     </div>
-    <h2 style="margin-top:22px">Historial de viajes por fecha</h2>
-    <p class="ayuda">Haz clic en una fecha para ver todos los viajes cargados ese día, con placa, tripulación y montos.${BUSCA_P ? " Filtrado por “" + esc(BUSCA_P) + "”." : ""}</p>
+    <div class="row" style="margin-top:22px;align-items:center"><h2 style="margin:0">Historial de viajes ${BUSCA_P ? "que coinciden con “" + esc(BUSCA_P) + "”" : HIST_TODAS ? "(todas las fechas)" : "del " + fmtF(FECHA)}</h2>
+      <div class="grow"></div>${BUSCA_P ? "" : `<button id="trTodas">${HIST_TODAS ? "Ver solo " + fmtF(FECHA) : "Ver todas las fechas"}</button>`}</div>
+    <p class="ayuda">Haz clic en la fecha para ver los viajes cargados ese día, con placa, tripulación y montos.</p>
     ${hist.length ? hist.map(({ fe, filas }) => {
-      const ab = HIST_ABIERTO.has(fe) || (BUSCA_P && hist.length <= 3);
+      const ab = HIST_ABIERTO.has(fe) ? !HIST_CERRADO.has(fe) : (!HIST_CERRADO.has(fe) && (fe === FECHA && !HIST_TODAS || (BUSCA_P && hist.length <= 3)));
       let pg = 0, ds = 0, aC = 0, fav = 0, nv = 0, nc = 0;
       filas.forEach(r => { if (r.c) { nv++; pg += r.c.pagado; ds += r.c.descontado; aC += r.c.aCobrar; fav += r.c.aFavor; if (r.l.estado === "cerrada") nc++; } });
       const dsem = new Date(fe + "T12:00:00").toLocaleDateString("es-PE", { weekday: "long" });
@@ -1245,12 +1336,25 @@ function vTripulacion(m) {
             <td>${r.l ? `<button data-ver="${r.l.id}">Ver</button>` : ""}</td></tr>`).join("")}
           </tbody></table></div>
           <div class="row" style="padding:8px 12px"><button data-irfecha="${fe}">Ir a la tripulación de este día</button></div>` : ""}
-      </div>`; }).join("") : `<div class="card vacio">Aún no hay días registrados${BUSCA_P ? " que coincidan con la búsqueda" : ""}.</div>`}`;
+      </div>`; }).join("") : `<div class="card vacio">${BUSCA_P ? "No hay viajes que coincidan con la búsqueda." : HIST_TODAS ? "Aún no hay días registrados." : "No hay viajes registrados en esta fecha."}</div>`}`;
   $("trFecha").onchange = e => { FECHA = e.target.value || hoyISO(); $("fecha").value = FECHA; render(); };
   const b = $("trBusca");
   b.oninput = () => { BUSCA_P = b.value; clearTimeout(b._t); b._t = setTimeout(() => { const pos = b.selectionStart; render(); const n = $("trBusca"); n.focus(); n.setSelectionRange(pos, pos); }, 250); };
   $("trLimpiar").onclick = () => { BUSCA_P = ""; render(); };
-  m.querySelectorAll("[data-hist]").forEach(h => h.onclick = () => { const fe = h.dataset.hist; HIST_ABIERTO.has(fe) ? HIST_ABIERTO.delete(fe) : HIST_ABIERTO.add(fe); render(); });
+  m.querySelectorAll("[data-hist]").forEach(h => h.onclick = () => {
+    const fe = h.dataset.hist, abierta = h.parentElement.classList.contains("on");
+    if (abierta) { HIST_ABIERTO.delete(fe); HIST_CERRADO.add(fe); } else { HIST_CERRADO.delete(fe); HIST_ABIERTO.add(fe); }
+    render();
+  });
+  const tt = $("trTodas"); if (tt) tt.onclick = () => { HIST_TODAS = !HIST_TODAS; render(); };
+  $("trAddVeh").onchange = e => { const id = e.target.value; if (!id) return; (S.dias[FECHA] = S.dias[FECHA] || {})[id] = (S.dias[FECHA] || {})[id] || []; guardar(); render(); };
+  m.querySelectorAll("[data-quitveh]").forEach(x => x.onclick = () => {
+    if (!x.dataset.ok) { x.dataset.ok = 1; x.textContent = "¿Quitar?"; setTimeout(() => { if (x.isConnected) { delete x.dataset.ok; x.textContent = "✕"; } }, 3000); return; }
+    const l = liqDe(FECHA, x.dataset.quitveh); if (l && !l.pdf) delete S.liqs[l.id];
+    delete S.dias[FECHA][x.dataset.quitveh]; if (!Object.keys(S.dias[FECHA]).length) delete S.dias[FECHA];
+    guardar(); render();
+  });
+  $("trImportar").onclick = () => $("fileTrip").click();
   m.querySelectorAll("[data-ver]").forEach(x => x.onclick = () => abrirLiqId(x.dataset.ver));
   m.querySelectorAll("[data-irfecha]").forEach(x => x.onclick = () => { FECHA = x.dataset.irfecha; $("fecha").value = FECHA; render(); window.scrollTo({ top: 0, behavior: "smooth" }); });
   m.querySelectorAll(".chip[data-p]").forEach(c => c.ondragstart = e => e.dataTransfer.setData("text/persona", c.dataset.p));
@@ -1263,7 +1367,6 @@ function vTripulacion(m) {
   m.querySelectorAll("[data-quitar]").forEach(x => x.onclick = () => {
     const [vid, pid] = x.dataset.quitar.split("|");
     S.dias[FECHA][vid] = S.dias[FECHA][vid].filter(t => t.personaId !== pid);
-    if (!S.dias[FECHA][vid].length) delete S.dias[FECHA][vid];
     guardar(); render();
   });
   m.querySelectorAll("[data-fun]").forEach(s => s.onchange = () => {
@@ -1280,11 +1383,188 @@ function vTripulacion(m) {
     delete S.dias[FECHA]; guardar(); render();
   };
 }
+// =====================================================================
+// Importar tripulación desde imagen, PDF o Excel (sin IA: OCR gratuito Tesseract.js + lectura por posiciones)
+// =====================================================================
+let IMP = null;
+const TESS_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+function cargarScript(src) {
+  return new Promise((ok, no) => {
+    if (window.Tesseract && src === TESS_URL) return ok();
+    const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => no(new Error("No se pudo cargar el lector de imágenes (revisa tu internet).")); document.head.appendChild(s);
+  });
+}
+function panelImp(html) { LIQ_ABIERTA = null; $("panel").classList.add("on"); $("hoja").innerHTML = html; }
+function cerrarImp() { IMP = null; $("panel").classList.remove("on"); render(); }
+async function ocrCanvas(canvas, prog) {
+  await cargarScript(TESS_URL);
+  const worker = await Tesseract.createWorker("spa", 1, { logger: m => { if (m.status === "recognizing text") prog(Math.round(m.progress * 100)); } });
+  await worker.setParameters({ tessedit_pageseg_mode: "11" });
+  const { data } = await worker.recognize(canvas);
+  await worker.terminate();
+  return (data.words || []).filter(w => w.confidence > 30)
+    .map(w => ({ t: w.text, x0: w.bbox.x0, x1: w.bbox.x1, yc: (w.bbox.y0 + w.bbox.y1) / 2, h: w.bbox.y1 - w.bbox.y0 }));
+}
+async function imagenACanvas(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error("No se pudo abrir la imagen.")); i.src = url; });
+    const k = img.width < 1800 ? 2 : 1;
+    const c = document.createElement("canvas"); c.width = img.width * k; c.height = img.height * k;
+    const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingQuality = "high"; g.drawImage(img, 0, 0, c.width, c.height);
+    const d = g.getImageData(0, 0, c.width, c.height);
+    for (let i = 0; i < d.data.length; i += 4) { const y = 0.299 * d.data[i] + 0.587 * d.data[i + 1] + 0.114 * d.data[i + 2]; d.data[i] = d.data[i + 1] = d.data[i + 2] = y; }
+    g.putImageData(d, 0, 0);
+    return c;
+  } finally { URL.revokeObjectURL(url); }
+}
+async function palabrasPdf(file, prog) {
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const page = await pdf.getPage(1), vp = page.getViewport({ scale: 1 });
+  const tc = await page.getTextContent();
+  const ws = [];
+  tc.items.filter(i => i.str && i.str.trim()).forEach(i => {
+    const h = Math.abs(i.transform[3]) || i.height || 10, x0 = i.transform[4], w = i.width || h * i.str.length * 0.5, yc = vp.height - i.transform[5] - h / 2;
+    const partes = i.str.trim().split(/\s+/), total = i.str.trim().length; let pos = 0;
+    partes.forEach(p => { const a = x0 + w * pos / total, b = x0 + w * (pos + p.length) / total; ws.push({ t: p, x0: a, x1: b, yc, h }); pos += p.length + 1; });
+  });
+  if (ws.map(w => w.t).join("").length > 15) return ws;            // PDF con texto
+  const v2 = page.getViewport({ scale: 2.5 }), c = document.createElement("canvas"); c.width = v2.width; c.height = v2.height;
+  await page.render({ canvasContext: c.getContext("2d"), viewport: v2 }).promise;   // PDF escaneado → OCR
+  return ocrCanvas(c, prog);
+}
+async function palabrasExcel(file) {
+  if (typeof ExcelJS === "undefined") throw new Error("No se pudo cargar la librería de Excel (revisa tu internet).");
+  const wb = new ExcelJS.Workbook(); await wb.xlsx.load(await file.arrayBuffer());
+  for (const ws of wb.worksheets) {
+    const out = [], merges = {};
+    (ws.model.merges || []).forEach(r => { const [a, b] = r.split(":"); merges[a] = { c1: ws.getCell(a).col, c2: ws.getCell(b || a).col }; });
+    ws.eachRow({ includeEmpty: false }, (row, r) => row.eachCell({ includeEmpty: false }, (cell, c) => {
+      if (cell.isMerged && cell.master && cell.master.address !== cell.address) return;
+      const v = cell.value instanceof Date ? `${String(cell.value.getUTCDate()).padStart(2, "0")}/${String(cell.value.getUTCMonth() + 1).padStart(2, "0")}/${cell.value.getUTCFullYear()}` : String(cell.text ?? "").trim();
+      if (!v) return;
+      const m = merges[cell.address], c1 = m ? m.c1 : c, c2 = m ? m.c2 : c;
+      out.push({ t: v, x0: (c1 - 1) * 100 + 5, x1: c2 * 100 - 5, yc: r * 20, h: 14 });
+    }));
+    if (out.some(w => esPlaca(w.t))) return out;
+  }
+  return [];
+}
+// personas del registro que coinciden con un nombre leído (todas sus palabras deben estar en el nombre registrado)
+function candidatos(nombre) {
+  const tok = x => _st(x).replace(/[^a-z\s]/g, " ").split(/\s+/).filter(t => t.length > 1);
+  const tk = tok(nombre); if (!tk.length) return [];
+  return S.personal.map(p => {
+    if (_st(p.nombre).trim() === _st(nombre).trim() || (p.alias || []).some(a => _st(a) === _st(nombre))) return { p, sc: 3 };
+    const pt = tok(p.nombre);
+    const hit = tk.filter(t => pt.some(x => x === t || (t.length >= 3 && x.startsWith(t)))).length;
+    return { p, sc: hit === tk.length ? 1 + (pt[0] === tk[0] ? 1 : 0) : 0 };
+  }).filter(x => x.sc > 0).sort((a, b) => b.sc - a.sc || a.p.nombre.localeCompare(b.p.nombre));
+}
+function abrirImportador(res, archivo) {
+  IMP = { fecha: res.fecha || FECHA, archivo, bloques: res.bloques.map(b => {
+    const v = S.vehiculos.find(x => placaCoincide(x.placa, b.placa));
+    return { incluir: true, placa: v ? v.placa : b.placa, bk: v && v.bk ? v.bk : b.bk, bkLeido: b.bk, vehId: v ? v.id : null,
+      miembros: b.miembros.map(m => { const c = candidatos(m.nombre); return { ...m, leido: m.nombre, sel: c.length ? c[0].p.id : "__nuevo", cand: c.map(x => x.p.id) }; }) };
+  }) };
+  pintarImportador();
+}
+function pintarImportador() {
+  const I = IMP, nP = I.bloques.reduce((a, b) => a + b.miembros.length, 0);
+  const otros = S.personal.slice().sort((a, b) => a.nombre.localeCompare(b.nombre));
+  panelImp(`
+    <div class="ptop"><h2>Importar tripulación</h2><button id="impX">✕ Cerrar</button></div>
+    <div class="card"><div class="row">
+      <span class="grow">Archivo: <b>${esc(I.archivo)}</b> · se encontraron <b>${I.bloques.length}</b> vehículo(s) y <b>${nP}</b> tripulante(s). Revisa y corrige antes de cargar.</span>
+      <label class="f">Fecha de la tripulación<input type="date" id="impFecha" value="${I.fecha}"></label>
+    </div><p class="ayuda" style="margin:8px 0 0">★ = coincide con alguien de tu personal. “Crear nuevo” lo agrega al registro (luego puedes completar su DNI). Si una persona ya estaba en otro vehículo ese día, se moverá.</p></div>
+    ${I.bloques.length ? `<div class="imp-grid">${I.bloques.map((b, i) => `
+      <div class="imp-b ${b.incluir ? "" : "off"}">
+        <div class="vh"><input type="checkbox" data-bi="${i}" data-k="incluir" ${b.incluir ? "checked" : ""} title="Incluir">
+          <input data-bi="${i}" data-k="placa" value="${esc(b.placa)}" style="width:110px"> —
+          <input data-bi="${i}" data-k="bk" value="${esc(b.bk)}" style="width:90px">
+          ${b.vehId ? `<span class="tag pos">Registrado</span>${b.bkLeido && b.bkLeido !== b.bk ? `<small class="ayuda">leído ${esc(b.bkLeido)}</small>` : ""}` : `<span class="tag warn">Vehículo nuevo</span>`}</div>
+        <table><thead><tr><th style="width:96px">Función</th><th style="width:42%">Leído</th><th>Persona</th><th style="width:28px"></th></tr></thead><tbody>
+        ${b.miembros.map((m, j) => `<tr>
+          <td><select data-bi="${i}" data-mj="${j}" data-k="funcion">${FUNCIONES.concat(FUNCIONES.includes(m.funcion) ? [] : [m.funcion]).map(x => `<option ${x === m.funcion ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></td>
+          <td><input data-bi="${i}" data-mj="${j}" data-k="nombre" value="${esc(m.nombre)}"></td>
+          <td><select data-bi="${i}" data-mj="${j}" data-k="sel">
+            ${m.cand.map(id => persona(id)).filter(Boolean).map(p => `<option value="${p.id}" ${m.sel === p.id ? "selected" : ""}>★ ${esc(p.nombre)}${p.dni ? " · " + esc(p.dni) : ""}</option>`).join("")}
+            <option value="__nuevo" ${m.sel === "__nuevo" ? "selected" : ""}>➕ Crear nuevo: ${esc(m.nombre)}</option>
+            <option value="__omitir" ${m.sel === "__omitir" ? "selected" : ""}>— Omitir —</option>
+            ${otros.length ? `<optgroup label="Todo el personal">${otros.filter(p => !m.cand.includes(p.id)).map(p => `<option value="${p.id}" ${m.sel === p.id ? "selected" : ""}>${esc(p.nombre)}${p.dni ? " · " + esc(p.dni) : ""}</option>`).join("")}</optgroup>` : ""}
+          </select></td>
+          <td><button class="x" data-quitm="${i}|${j}" title="Quitar">✕</button></td></tr>`).join("")}
+        </tbody></table>
+        <div class="vf" style="padding:6px 10px"><button data-addm="${i}" style="font-size:12px;padding:4px 10px">+ Agregar fila</button></div>
+      </div>`).join("")}</div>
+      <div class="row" style="margin-top:14px;justify-content:flex-end"><button id="impCancelar">Cancelar</button><button class="ok" id="impOk">✔ Cargar tripulación al ${fmtF(I.fecha)}</button></div>`
+    : `<div class="card m-warn">No se encontraron placas en el archivo. Asegúrate de que la imagen se vea nítida y completa (placas con formato como D8X-765, el BK debajo y las filas Chofer / Reparto / Auxiliares). Si tienes el Excel original, súbelo directamente: se lee sin errores.</div>`}`);
+  $("impX").onclick = cerrarImp;
+  const cc = $("impCancelar"); if (cc) cc.onclick = cerrarImp;
+  $("impFecha").onchange = e => { I.fecha = e.target.value; pintarImportador(); };
+  $("hoja").querySelectorAll("[data-bi]").forEach(el => el.onchange = () => {
+    const b = I.bloques[+el.dataset.bi], k = el.dataset.k;
+    if (el.dataset.mj != null) { const m = b.miembros[+el.dataset.mj]; m[k] = k === "nombre" ? el.value.toUpperCase() : el.value;
+      if (k === "nombre") { const c = candidatos(m.nombre); m.cand = c.map(x => x.p.id); if (m.sel === "__nuevo" && c.length) m.sel = c[0].p.id; } }
+    else if (k === "incluir") b.incluir = el.checked;
+    else if (k === "placa") { b.placa = el.value.toUpperCase().trim(); const v = S.vehiculos.find(x => placaCoincide(x.placa, b.placa)); b.vehId = v ? v.id : null; }
+    else if (k === "bk") { b.bk = el.value.toUpperCase().trim(); b.bkTocado = true; }
+    pintarImportador();
+  });
+  $("hoja").querySelectorAll("[data-quitm]").forEach(x => x.onclick = () => { const [i, j] = x.dataset.quitm.split("|").map(Number); I.bloques[i].miembros.splice(j, 1); pintarImportador(); });
+  $("hoja").querySelectorAll("[data-addm]").forEach(x => x.onclick = () => { I.bloques[+x.dataset.addm].miembros.push({ funcion: "AUXILIAR", nombre: "", leido: "", sel: "__omitir", cand: [] }); pintarImportador(); });
+  const ok = $("impOk"); if (ok) ok.onclick = confirmarImport;
+}
+function confirmarImport() {
+  const I = IMP, F = I.fecha; if (!F) return toast("Indica la fecha.");
+  const dia = S.dias[F] = S.dias[F] || {};
+  let nv = 0, np = 0, nt = 0; const creados = {};
+  I.bloques.filter(b => b.incluir && b.placa).forEach(b => {
+    let v = (b.vehId && vehiculo(b.vehId)) || S.vehiculos.find(x => placaCoincide(x.placa, b.placa));
+    if (!v) { v = { id: uid(), placa: b.placa, bk: b.bk || "" }; S.vehiculos.push(v); nv++; }
+    else if (b.bk && (!v.bk || b.bkTocado)) v.bk = b.bk;
+    const lista = [];
+    b.miembros.forEach(m => {
+      const nom = (m.nombre || "").trim().toUpperCase();
+      if (m.sel === "__omitir" || !nom) return;
+      let p = m.sel !== "__nuevo" ? persona(m.sel) : (creados[nom] || null);
+      if (!p) { p = { id: uid(), nombre: nom, dni: "", funcion: m.funcion }; S.personal.push(p); creados[nom] = p; np++; }
+      else if (_st(p.nombre) !== _st(nom)) p.alias = [...new Set([...(p.alias || []), nom])];   // recordar cómo figura en la hoja
+      if (lista.some(t => t.personaId === p.id)) return;
+      Object.keys(dia).forEach(k => { if (k !== v.id) dia[k] = dia[k].filter(t => t.personaId !== p.id); });
+      lista.push({ personaId: p.id, funcion: m.funcion }); nt++;
+    });
+    dia[v.id] = lista;
+  });
+  guardar(); FECHA = F; $("fecha").value = F; IMP = null; $("panel").classList.remove("on"); render();
+  toast(`Tripulación del ${fmtF(F)} cargada: ${nt} persona(s)${nv ? `, ${nv} vehículo(s) nuevo(s)` : ""}${np ? `, ${np} persona(s) nueva(s)` : ""}.`);
+}
+$("fileTrip").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  panelImp(`<div class="ptop"><h2>Importar tripulación</h2><button id="impX">✕ Cerrar</button></div>
+    <div class="card"><b id="impEstado">Leyendo ${esc(f.name)}…</b><div class="barra"><i id="impBar"></i></div>
+    <p class="ayuda">La lectura se hace en tu navegador. La primera vez que subes una imagen se descarga el lector de texto (unos segundos).</p></div>`);
+  $("impX").onclick = cerrarImp;
+  const prog = p => { const b = $("impBar"), s2 = $("impEstado"); if (b) b.style.width = Math.max(3, p) + "%"; if (s2) s2.textContent = `Leyendo el texto… ${p}%`; };
+  try {
+    let words;
+    if (/\.xlsx$/i.test(f.name)) words = await palabrasExcel(f);
+    else if (/\.pdf$/i.test(f.name) || f.type === "application/pdf") words = await palabrasPdf(f, prog);
+    else if ((f.type || "").startsWith("image/") || /\.(png|jpe?g|webp|bmp)$/i.test(f.name)) { $("impEstado").textContent = "Preparando la imagen…"; words = await ocrCanvas(await imagenACanvas(f), prog); }
+    else throw new Error("Formato no soportado. Usa una imagen (JPG/PNG), un PDF o el Excel (.xlsx).");
+    abrirImportador(parseTripulacion(words), f.name);
+  } catch (err) {
+    console.error(err);
+    panelImp(`<div class="ptop"><h2>Importar tripulación</h2><button id="impX">✕ Cerrar</button></div><div class="card m-err">No se pudo leer el archivo: ${esc(err.message || err)}</div>`);
+    $("impX").onclick = cerrarImp;
+  }
+};
 function asignar(vehId, personaId) {
   const p = persona(personaId); if (!p) return;
   const dia = S.dias[FECHA] = S.dias[FECHA] || {};
   // si ya estaba en otro vehículo ese día, se mueve
-  Object.keys(dia).forEach(k => { dia[k] = dia[k].filter(t => t.personaId !== personaId); if (!dia[k].length) delete dia[k]; });
+  Object.keys(dia).forEach(k => { dia[k] = dia[k].filter(t => t.personaId !== personaId); });
   (dia[vehId] = dia[vehId] || []).push({ personaId, funcion: p.funcion || "AUXILIAR" });
   guardar(); render();
 }
