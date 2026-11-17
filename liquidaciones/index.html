@@ -152,7 +152,7 @@
   <button data-v="personal">👥 Personal</button>
   <button data-v="vehiculos">🚛 Vehículos</button>
   <button data-v="config">⚙️ Configuración</button>
-  <div class="pie">Los datos se guardan en este navegador. Haz un respaldo desde Configuración.</div>
+  <div class="pie">Los datos se guardan en este navegador y en este enlace: usa siempre el mismo enlace y el mismo navegador. Haz un respaldo desde Configuración.</div>
 </nav>
 <div class="velo" id="velo"></div>
 <div class="wrap">
@@ -345,6 +345,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs
 const KEY = "segsol_liquidaciones_v2";
 const FUNCIONES = ["CHOFER", "REPARTO", "AUXILIAR", "AUXILIAR APOYO"];
 const MEDIOS = ["Efectivo", "Yape", "Plin", "Transferencia", "Depósito", "Otro"];
+const S0 = () => ({ precios: { caja: 3.8, grande: 0.6, chica: 0.5 }, preciosProd: {}, personal: [], vehiculos: [], dias: {}, liqs: {} });
 let S = {
   precios: { caja: 3.8, grande: 0.6, chica: 0.5 },
   preciosProd: {},          // último precio usado por código de producto
@@ -356,6 +357,23 @@ let S = {
 try { const g = JSON.parse(localStorage.getItem(KEY) || "null"); if (g) S = Object.assign(S, g); } catch (e) {}
 let LIBRO = null;
 const guardar = () => { LIBRO = null; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("No se pudo guardar en este navegador."); } };
+// Si la página está abierta en varias pestañas, todas usan los mismos datos: al volver a una pestaña o
+// cuando otra guarda, se recargan (así una pestaña antigua no borra lo que se cargó en otra).
+function recargarDatos() {
+  try {
+    const g = JSON.parse(localStorage.getItem(KEY) || "null"); if (!g) return;
+    const tmp = typeof LIQ_ABIERTA !== "undefined" && LIQ_ABIERTA ? S.liqs[LIQ_ABIERTA] : null;
+    S = Object.assign(S0(), g); LIBRO = null;
+    if (tmp && !S.liqs[tmp.id] && tmp.temporal) S.liqs[tmp.id] = tmp;
+  } catch (e) {}
+}
+function refrescarVista() {
+  if (typeof IMP !== "undefined" && IMP) return;                      // no interrumpir una importación en curso
+  render();
+  if (LIQ_ABIERTA && $("panel").classList.contains("on")) { if (S.liqs[LIQ_ABIERTA]) pintarPanel(); else cerrarPanel(); }
+}
+window.addEventListener("storage", e => { if (e.key === KEY) { recargarDatos(); refrescarVista(); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { recargarDatos(); refrescarVista(); } });
 
 const $ = id => document.getElementById(id);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -717,8 +735,15 @@ async function cargarPdfs(files, vehId, abrir, nFijo) {
       let destino = vehId;
       if (!destino) {
         const v = S.vehiculos.find(v => placaCoincide(v.placa, pdf.enc.placa));
-        if (!v) { MSGS.push(["m-err", `${f.name}: la placa ${pdf.enc.placa} no está registrada en Vehículos.`]); continue; }
-        destino = v.id;
+        if (v) destino = v.id;
+        else {   // placa nueva: se registra y se agrega a este día para poder liquidarla
+          const nuevo = { id: uid(), placa: String(pdf.enc.placa).toUpperCase(), bk: "" };
+          S.vehiculos.push(nuevo); destino = nuevo.id;
+          MSGS.push(["m-warn", `${f.name}: la placa ${pdf.enc.placa} no estaba registrada; se creó el vehículo. Asígnale su BK y tripulación en Tripulación del día.`]);
+        }
+      }
+      if (S.dias[FECHA] === undefined || S.dias[FECHA][destino] === undefined) {   // el vehículo liquidado figura en la tripulación del día
+        (S.dias[FECHA] = S.dias[FECHA] || {})[destino] = (S.dias[FECHA] || {})[destino] || [];
       }
       let n = nFijo;
       if (!n) {
