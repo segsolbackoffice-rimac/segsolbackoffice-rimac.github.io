@@ -271,7 +271,8 @@ let S = {
   liqs: {}                  // id -> liquidación
 };
 try { const g = JSON.parse(localStorage.getItem(KEY) || "null"); if (g) S = Object.assign(S, g); } catch (e) {}
-const guardar = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("No se pudo guardar en este navegador."); } };
+let LIBRO = null;
+const guardar = () => { LIBRO = null; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("No se pudo guardar en este navegador."); } };
 
 const $ = id => document.getElementById(id);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -321,11 +322,20 @@ function infoEnvase(nombre, P) {
   return { tipo: "Otro", precio: null };
 }
 
-function calc(l) {
+// ZPD7 quita faltante (+cantidad), ZPD4 agrega faltante (−cantidad)
+function mapaAjustes(l) {
+  const m = {};
+  (l.ajustes || []).forEach(a => { if (a.codigo === "ZPD7" || a.codigo === "ZPD4") m[a.mat] = (m[a.mat] || 0) + (a.codigo === "ZPD7" ? a.cantidad : -a.cantidad); });
+  return m;
+}
+function calcBase(l) {
   const P = l.estado === "cerrada" && l.precios ? l.precios : S.precios;
   const r = { lineas: [], bot: 0, caj: 0, prod: 0, sobr: 0, falt: 0, prodMonto: 0, prodSinPrecio: 0 };
-  for (const ln of (l.pdf ? l.pdf.lineas : [])) {
-    if (!ln.diferencia) continue;
+  const AJ = mapaAjustes(l);
+  for (const lnPdf of (l.pdf ? l.pdf.lineas : [])) {
+    const aj = AJ[lnPdf.seccion + "|" + lnPdf.codigo] || 0;
+    if (!lnPdf.diferencia && !aj) continue;
+    const ln = { ...lnPdf, difPdf: lnPdf.diferencia, ajuste: aj, diferencia: lnPdf.diferencia + aj };
     const x = { ...ln, tipo: "", precio: null, dinero: null };
     if (ln.seccion === "Vacíos") {
       const e = infoEnvase(ln.nombre, P); x.tipo = e.tipo; x.precio = e.precio;
@@ -345,11 +355,61 @@ function calc(l) {
   r.neto = r2(r.sobr + r.falt);
   r.aCobrar = r.neto < 0 ? r2(-r.neto) : 0;
   r.aFavor = r.neto > 0 ? r.neto : 0;
+  r.aCobrarBase = r.aCobrar;
   const cob = l.cobros || [];
   r.pagado = r2(cob.filter(c => c.tipo === "pago").reduce((a, c) => a + c.monto, 0));
   r.descontado = r2(cob.filter(c => c.tipo === "descuento").reduce((a, c) => a + c.monto, 0));
   r.cubierto = r2(r.pagado + r.descontado);
   r.pendiente = r2(r.aCobrar - r.cubierto);
+  return r;
+}
+
+// =====================================================================
+// Saldo a favor: el sobrante neto de una liquidación CERRADA queda para el tripulante con rol REPARTO
+// y cubre automáticamente sus faltantes de los 3 días siguientes. Luego vence y queda solo en historial.
+// =====================================================================
+const DIAS_SALDO = 3;
+const addDias = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const pkey = o => o.personaId || (o.dni ? "dni:" + o.dni : "n:" + sinTilde(o.nombre || ""));
+const repartoDe = l => tripLiq(l).find(t => String(t.funcion).toUpperCase() === "REPARTO");
+function libro() {
+  if (LIBRO) return LIBRO;
+  const all = Object.values(S.liqs).filter(l => l.pdf);
+  const base = {}; all.forEach(l => base[l.id] = calcBase(l));
+  const fuentes = {}, aplicado = {};
+  all.filter(l => l.estado === "cerrada" && base[l.id].aFavor > 0).forEach(l => {
+    const rep = repartoDe(l); if (!rep) return;
+    fuentes[l.id] = { id: l.id, l, owner: { key: pkey(rep), nombre: rep.nombre, dni: rep.dni || "" }, monto: base[l.id].aFavor,
+      fecha: l.fecha, vence: addDias(l.fecha, DIAS_SALDO), saldo: base[l.id].aFavor, usos: [] };
+  });
+  // liquidaciones cerradas: lo que usaron quedó guardado al cerrar
+  all.filter(l => l.estado === "cerrada").forEach(l => {
+    aplicado[l.id] = (l.creditos || []).slice();
+    aplicado[l.id].forEach(u => { const f = fuentes[u.src]; if (f) { f.saldo = r2(f.saldo - u.monto); f.usos.push({ l, monto: u.monto }); } });
+  });
+  // liquidaciones abiertas con faltante: usan el saldo vigente de su tripulación, del más antiguo al más nuevo
+  all.filter(l => l.estado !== "cerrada" && base[l.id].aCobrar > 0)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || (a.creado || a.id).localeCompare(b.creado || b.id)).forEach(l => {
+      const keys = new Set(tripLiq(l).map(pkey)); let falta = base[l.id].aCobrar; const us = [];
+      Object.values(fuentes).filter(f => f.saldo > 0 && keys.has(f.owner.key) && f.fecha < l.fecha && l.fecha <= f.vence)
+        .sort((a, b) => a.fecha.localeCompare(b.fecha)).forEach(f => {
+          if (falta <= 0) return;
+          const t = r2(Math.min(falta, f.saldo)); f.saldo = r2(f.saldo - t); falta = r2(falta - t);
+          f.usos.push({ l, monto: t }); us.push({ src: f.id, monto: t, nombre: f.owner.nombre, fecha: f.fecha });
+        });
+      aplicado[l.id] = us;
+    });
+  const hoy = hoyISO();
+  Object.values(fuentes).forEach(f => { f.estado = f.saldo <= 0 ? "Aplicado" : hoy > f.vence ? "Vencido" : "Vigente"; });
+  return (LIBRO = { base, fuentes, aplicado });
+}
+function calc(l) {
+  const r = calcBase(l);
+  const us = l.pdf ? (libro().aplicado[l.id] || []) : [];
+  r.creditos = us; r.credito = r2(us.reduce((a, u) => a + u.monto, 0));
+  r.aCobrar = r2(Math.max(0, r.aCobrarBase - r.credito));
+  r.pendiente = r2(r.aCobrar - r.cubierto);
+  r.fuente = l.pdf ? (libro().fuentes[l.id] || null) : null;
   return r;
 }
 
@@ -409,7 +469,7 @@ function asignarPdf(pdf, fecha, vehId) {
   let l = liqDe(fecha, vehId);
   if (l && l.estado === "cerrada") return ["m-err", `${pdf.archivo}: la liquidación de ${v.placa} ya está cerrada. Reábrela para cambiar el PDF.`];
   if (l && l.pdf && l.pdf.base === pdf.base && l.pdf.rep > pdf.rep) return ["m-warn", `${pdf.archivo}: ya está cargado el reproceso R${l.pdf.rep}, que es más reciente. Omitido.`];
-  if (!l) { l = { id: uid(), fecha, vehId, cobros: [], estado: "abierta", incluirProductos: false, preciosProd: {} }; S.liqs[l.id] = l; }
+  if (!l) { l = { id: uid(), creado: new Date().toISOString(), fecha, vehId, cobros: [], estado: "abierta", incluirProductos: false, preciosProd: {} }; S.liqs[l.id] = l; }
   l.pdf = pdf;
   const aviso = placaCoincide(pdf.enc.placa, v.placa) ? "" : ` ⚠ La placa del PDF (${pdf.enc.placa}) no coincide con ${v.placa}.`;
   return [aviso ? "m-warn" : "m-ok", `${pdf.archivo}: viaje ${pdf.enc.viaje} cargado en ${v.placa}${v.bk ? " — " + v.bk : ""}.${aviso}`];
@@ -420,6 +480,7 @@ function asignarPdf(pdf, fecha, vehId) {
 // =====================================================================
 let MSGS = [];
 let LF = { q: "", estado: "" };
+let EXP = { desde: null, hasta: null };
 function vLiquidar(m) {
   const delDia = S.vehiculos.filter(v => tripDia(FECHA, v.id).length || liqDe(FECHA, v.id));
   const vehs = delDia.filter(v => {
@@ -451,7 +512,14 @@ function vLiquidar(m) {
       <div class="kpi"><span>Descontado</span><b class="neg">${soles(ds, false)}</b></div>
       <div class="kpi"><span>Sobrante a favor</span><b class="pos">${soles(r2(fav), false)}</b></div>
     </div>
-    <div class="row" style="justify-content:flex-end;margin:-4px 0 12px"><button class="primary" id="irCierre">💰 Ver cierre del día (total pagado y descontado)</button></div>
+    <div class="card"><div class="row">
+      <b style="align-self:center">📥 Exportar para cuadre de caja</b>
+      <label class="f">Fecha de inicio<input type="date" id="xDesde" value="${EXP.desde || FECHA}"></label>
+      <label class="f">Fecha de fin<input type="date" id="xHasta" value="${EXP.hasta || FECHA}"></label>
+      <button class="primary" id="xExcel">Exportar Excel</button>
+      <div class="grow"></div>
+      <button id="irCierre">💰 Ver cierre del día (total pagado y descontado)</button>
+    </div><p class="ayuda" style="margin:8px 0 0" id="xInfo"></p></div>
     <div class="card">
       <div class="drop" id="dropGeneral"><b>Arrastra aquí los PDFs del día</b> o haz clic para elegirlos
         <small>Cada PDF se asigna solo al vehículo con la misma placa. También puedes soltar el PDF directamente sobre la tarjeta del vehículo.</small></div>
@@ -469,6 +537,21 @@ function vLiquidar(m) {
   $("lEst").onchange = e => { LF.estado = e.target.value; render(); };
   $("lLimpiar").onclick = () => { LF = { q: "", estado: "" }; render(); };
   $("irCierre").onclick = () => { REP.desde = REP.hasta = FECHA; ir("reporte"); };
+  const infoX = () => {
+    const d = $("xDesde").value, h = $("xHasta").value, ls = d && h ? liqsRango(d, h) : [];
+    let pg = 0, ds = 0; ls.forEach(l => { const c = calc(l); pg += c.pagado; ds += c.descontado; });
+    $("xInfo").innerHTML = d > h ? `<span class="m-err">La fecha de inicio es mayor que la de fin.</span>`
+      : `${ls.length} liquidación(es) · dinero recibido <b class="pos">${soles(r2(pg), false)}</b> · descontado <b class="neg">${soles(r2(ds), false)}</b>${ls.some(l => l.estado !== "cerrada") ? ` · <span class="m-warn">hay liquidaciones sin cerrar</span>` : ""}`;
+  };
+  $("xDesde").onchange = e => { EXP.desde = e.target.value; infoX(); };
+  $("xHasta").onchange = e => { EXP.hasta = e.target.value; infoX(); };
+  infoX();
+  $("xExcel").onclick = () => {
+    const d = $("xDesde").value, h = $("xHasta").value;
+    if (!d || !h || d > h) return toast("Revisa las fechas de inicio y fin.");
+    const ls = liqsRango(d, h); if (!ls.length) return toast("No hay liquidaciones en ese rango.");
+    exportarReporte(ls, d, h);
+  };
   const dg = $("dropGeneral");
   dg.onclick = () => { $("filePdf").dataset.veh = ""; $("filePdf").click(); };
   dg.ondragover = e => { e.preventDefault(); dg.classList.add("over"); };
@@ -529,7 +612,7 @@ function toastMsgs() { const e = MSGS.find(m => m[0] !== "m-ok"); if (e) toast(e
 // =====================================================================
 function abrirLiq(fecha, vehId) {
   let l = liqDe(fecha, vehId);
-  if (!l) { l = { id: uid(), fecha, vehId, cobros: [], estado: "abierta", incluirProductos: false, preciosProd: {}, pdf: null, temporal: true }; S.liqs[l.id] = l; }
+  if (!l) { l = { id: uid(), creado: new Date().toISOString(), fecha, vehId, cobros: [], estado: "abierta", incluirProductos: false, preciosProd: {}, pdf: null, temporal: true }; S.liqs[l.id] = l; }
   LIQ_ABIERTA = l.id; FORM = { tipo: "pago", modo: "persona" };
   pintarPanel();
 }
@@ -543,7 +626,7 @@ function cerrarPanel() {
 
 function tablaSeccion(nombre, existe, lineas, modo, l) {
   const ls = lineas.filter(x => x.seccion === nombre);
-  const tag = ls.length ? `<span class="tag neg">${ls.length} con diferencia</span>` : `<span class="tag ok">Sin diferencias</span>`;
+  const tag = ls.length ? `<span class="tag neg">${ls.length} línea(s) con diferencia</span>` : `<span class="tag ok">Sin diferencias</span>`;
   if (!existe) return `<h3>${nombre} <span class="tag ok">No figura en el PDF</span></h3>`;
   let extra = "";
   if (nombre === "Productos" && ls.length) {
@@ -556,7 +639,7 @@ function tablaSeccion(nombre, existe, lineas, modo, l) {
     <th>Código</th><th>Descripción</th><th class="num">Conductor</th><th class="num">Sistema</th><th class="num">Diferencia</th>
     ${conDinero ? `<th>Tipo</th><th class="num">Precio</th><th class="num">Dinero</th>` : ""}</tr></thead><tbody>
     ${ls.map(x => `<tr><td>${esc(x.codigo)}</td><td>${esc(x.nombre)}</td><td class="num">${x.conductor}</td><td class="num">${x.sistema}</td>
-      <td class="num"><span class="tag ${cls(x.diferencia)}">${und(x.diferencia)}</span></td>
+      <td class="num"><span class="tag ${cls(x.diferencia)}">${und(x.diferencia)}</span>${x.ajuste ? `<br><small class="ayuda" style="white-space:nowrap">PDF ${und(x.difPdf)} · ZPD ${und(x.ajuste)}</small>` : ""}</td>
       ${conDinero ? `<td>${esc(x.tipo || (modo === "productos" ? "Producto" : ""))}</td>
         <td class="num">${modo === "productos" && l.estado !== "cerrada"
           ? `<input class="precio" type="number" step="0.01" min="0" data-cod="${esc(x.codigo)}" value="${x.precio ?? ""}" placeholder="S/">`
@@ -605,6 +688,7 @@ function pintarPanel() {
     ${secs.has("Activos") ? tablaSeccion("Activos", true, c.lineas, "otros", l) : ""}
     <p class="ayuda">Archivo: ${esc(l.pdf.archivo)}${l.pdf.rep ? ` · Reproceso R${l.pdf.rep}` : ""}
       ${!cerrada ? ` · <a href="#" id="pCambiar">Cambiar PDF</a>` : ""}</p>
+    ${seccionAjustes(l)}
     ${seccionCobro(l, c, trip)}`}`;
 
   $("pCerrar").onclick = cerrarPanel;
@@ -633,7 +717,60 @@ function pintarPanel() {
     });
     if (cambio) { guardar(); pintarPanel(); return; }
   }
+  enlazarAjustes(l);
   enlazarCobro(l, c, trip);
+}
+
+function seccionAjustes(l) {
+  const cerrada = l.estado === "cerrada";
+  const aj = l.ajustes || [];
+  const efecto = a => a.codigo === "ZPD7" ? `Quita faltante (+${a.cantidad})` : a.codigo === "ZPD4" ? `Agrega faltante (−${a.cantidad})` : "Comentario";
+  const mats = l.pdf.lineas.map((x, i) => ({ x, i })).sort((a, b) => (b.x.diferencia !== 0) - (a.x.diferencia !== 0));
+  return `
+    <h3>Ajustes y comentarios (ZPD7 / ZPD4) ${aj.length ? `<span class="tag azul">${aj.length}</span>` : ""}</h3>
+    <p class="ayuda" style="margin-top:0"><b>ZPD7</b> quita mercadería faltante (−24 con ZPD7 24 → 0). <b>ZPD4</b> agrega faltante (−24 con ZPD4 24 → −48). El ajuste cambia la diferencia y el dinero de la liquidación.</p>
+    ${aj.length ? `<div class="card scroll" style="padding:0"><table><thead><tr><th>Código</th><th>Material</th><th class="num">Cantidad</th><th>Efecto</th><th>Comentario</th><th>Registrado</th><th></th></tr></thead><tbody>
+      ${aj.map(a => `<tr><td><span class="tag ${a.codigo === "ZPD7" ? "pos" : a.codigo === "ZPD4" ? "neg" : "ok"}">${esc(a.codigo === "COMENTARIO" ? "Nota" : a.codigo)}</span></td>
+        <td>${a.mat ? esc(a.seccion + " · " + a.codigoMat + " — " + a.nombre) : "—"}</td><td class="num">${a.codigo === "COMENTARIO" ? "—" : a.cantidad}</td>
+        <td>${efecto(a)}</td><td>${esc(a.comentario || "")}</td><td style="font-size:11.5px;color:var(--muted)">${new Date(a.fecha).toLocaleString("es-PE")}</td>
+        <td>${cerrada ? "" : `<button class="x" data-delaj="${a.id}" title="Quitar">✕</button>`}</td></tr>`).join("")}
+    </tbody></table></div>` : ""}
+    ${cerrada ? "" : `<div class="cobro-form">
+      <div class="row">
+        <label class="f">Código<select id="ajCod"><option value="ZPD7">ZPD7 – quita faltante</option><option value="ZPD4">ZPD4 – agrega faltante</option><option value="COMENTARIO">Solo comentario</option></select></label>
+        <label class="f grow" id="ajMatW">Material<select id="ajMat">${mats.map(({ x, i }) => `<option value="${i}">${esc(x.seccion)} · ${esc(x.codigo)} — ${esc(x.nombre)} (PDF ${und(x.diferencia)})</option>`).join("")}</select></label>
+        <label class="f" id="ajCantW">Cantidad<input id="ajCant" type="number" min="1" step="1" style="width:100px"></label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label class="f grow">Comentario<input id="ajCom" placeholder="Ej. ZPD7 aprobado por supervisor, botellas devueltas en almacén"></label>
+        <button class="primary" id="ajAdd">Agregar</button>
+      </div>
+      <div class="msgs"><div class="m-err" id="ajErr"></div></div>
+    </div>`}`;
+}
+function enlazarAjustes(l) {
+  const h = $("hoja");
+  h.querySelectorAll("[data-delaj]").forEach(b => b.onclick = () => { l.ajustes = (l.ajustes || []).filter(a => a.id !== b.dataset.delaj); guardar(); pintarPanel(); render(); });
+  const cod = $("ajCod"); if (!cod) return;
+  const toggle = () => { const sc = cod.value === "COMENTARIO"; $("ajCantW").style.display = sc ? "none" : ""; };
+  cod.onchange = toggle; toggle();
+  $("ajAdd").onclick = () => {
+    const err = t => $("ajErr").textContent = t;
+    const codigo = cod.value, com = $("ajCom").value.trim();
+    const x = l.pdf.lineas[+$("ajMat").value];
+    const a = { id: uid(), codigo, comentario: com, fecha: new Date().toISOString(), cantidad: 0, mat: "", seccion: "", codigoMat: "", nombre: "" };
+    if (codigo === "COMENTARIO") {
+      if (!com) return err("Escribe el comentario.");
+      if (x) Object.assign(a, { mat: x.seccion + "|" + x.codigo, seccion: x.seccion, codigoMat: x.codigo, nombre: x.nombre });
+    } else {
+      const cant = Math.round(+$("ajCant").value);
+      if (!x) return err("Elige el material.");
+      if (!(cant > 0)) return err("Ingresa la cantidad (número entero mayor a 0).");
+      Object.assign(a, { cantidad: cant, mat: x.seccion + "|" + x.codigo, seccion: x.seccion, codigoMat: x.codigo, nombre: x.nombre });
+    }
+    (l.ajustes = l.ajustes || []).push(a);
+    guardar(); pintarPanel(); render();
+  };
 }
 // el PDF que se carga desde el panel va a la fecha de la liquidación abierta
 function FECHA_PDF(l) { FECHA = l.fecha; $("fecha").value = FECHA; }
@@ -689,7 +826,8 @@ function seccionCobro(l, c, trip) {
     <h3>Cobro de la liquidación</h3>
     <div class="estado-cobro">
       ${c.aFavor ? `<div>Sobrante a favor<br><b class="pos">${soles(c.aFavor, false)}</b></div>` : ""}
-      <div>A cobrar (neto)<br><b>${soles(c.aCobrar, false)}</b></div>
+      ${c.credito ? `<div>Faltante neto<br><b>${soles(c.aCobrarBase, false)}</b></div><div>Saldo a favor aplicado<br><b class="pos">−${soles(c.credito, false)}</b></div>` : ""}
+      <div>A cobrar${c.credito ? "" : " (neto)"}<br><b>${soles(c.aCobrar, false)}</b></div>
       <div>Pagado<br><b class="pos">${soles(c.pagado, false)}</b></div>
       <div>Descuento<br><b class="neg">${soles(c.descontado, false)}</b></div>
       <div>Pendiente<br><b class="${c.pendiente > 0 ? "neg" : "pos"}">${soles(Math.max(c.pendiente, 0), false)}</b></div>
@@ -698,10 +836,27 @@ function seccionCobro(l, c, trip) {
           : `<button class="ok" id="cCerrarLiq" ${c.pendiente === 0 ? "" : "disabled"} title="${c.pendiente > 0 ? "Falta cubrir el monto pendiente con pagos o descuentos" : ""}">✔ Cerrar liquidación</button>`}
       </div>
     </div>
-    ${c.aCobrar === 0 && !cerrada ? `<p class="ayuda">El neto no es negativo: no hay nada que cobrar. Puedes cerrar la liquidación.</p>` : ""}
+    ${c.creditos.map(u => `<p class="ayuda pos" style="margin:6px 0 0">✔ Se cubrió ${soles(u.monto, false)} con el saldo a favor de <b>${esc(u.nombre)}</b> (sobrante del ${fmtF(u.fecha)}).</p>`).join("")}
+    ${infoSaldo(l, c, trip)}
+    ${c.aCobrar === 0 && !cerrada ? `<p class="ayuda">No hay nada que cobrar. Puedes cerrar la liquidación.</p>` : ""}
     ${c.pendiente < 0 ? `<p class="ayuda m-err">Lo registrado supera lo que se debe cobrar en ${soles(-c.pendiente, false)}. Quita o corrige algún pago o descuento.</p>` : ""}
     ${filas ? `<div class="card scroll" style="padding:0;margin-top:10px"><table><thead><tr><th>Tipo</th><th>Persona</th><th>Medio / detalle</th><th class="num">Monto</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>` : ""}
-    ${form}`;
+    ${form}
+    ${cerrada ? (l.comentarioCierre ? `<div class="card" style="margin-top:10px;padding:12px 14px"><b>💬 Comentario de cierre:</b> ${esc(l.comentarioCierre)}</div>` : "")
+      : `<label class="f" style="margin-top:12px">💬 Comentario de cierre (opcional)<textarea id="cComent" placeholder="Ej. Se coordinó con el supervisor; el chofer devolverá las cajas mañana.">${esc(l.comentarioCierre || "")}</textarea></label>`}`;
+}
+function infoSaldo(l, c, trip) {
+  if (!c.aFavor) return "";
+  const f = c.fuente, box = t => `<div class="card" style="margin-top:10px;padding:10px 14px;border-color:#bfe3c9;background:#f3fbf5">${t}</div>`;
+  if (l.estado !== "cerrada") {
+    const rep = trip.find(t => String(t.funcion).toUpperCase() === "REPARTO");
+    return box(rep ? `💚 Al cerrar, el sobrante de <b>${soles(c.aFavor, false)}</b> quedará como saldo a favor de <b>${esc(rep.nombre)}</b> (REPARTO) para cubrir sus faltantes hasta el <b>${fmtF(addDias(l.fecha, DIAS_SALDO))}</b>.`
+      : `⚠ No hay tripulante con rol <b>REPARTO</b>: el sobrante de ${soles(c.aFavor, false)} quedará solo en el historial.`);
+  }
+  if (!f) return box(`El sobrante de ${soles(c.aFavor, false)} quedó solo en el historial (no había tripulante con rol REPARTO).`);
+  const est = { Vigente: `<span class="tag pos">Vigente hasta ${fmtF(f.vence)}</span>`, Aplicado: `<span class="tag azul">Aplicado</span>`, Vencido: `<span class="tag ok">Vencido el ${fmtF(f.vence)} · queda en historial</span>` }[f.estado];
+  return box(`💚 Saldo a favor de <b>${esc(f.owner.nombre)}</b> (REPARTO): ${soles(f.monto, false)} · disponible <b>${soles(Math.max(f.saldo, 0), false)}</b> ${est}
+    ${f.usos.map(u => { const v = vehiculo(u.l.vehId) || {}; return `<div class="ayuda" style="margin:4px 0 0">Usado ${soles(u.monto, false)} en ${esc(v.placa)} (${fmtF(u.l.fecha)})${u.l.estado !== "cerrada" ? " · liquidación en proceso" : ""}</div>`; }).join("")}`);
 }
 
 function enlazarCobro(l, c, trip) {
@@ -743,9 +898,14 @@ function enlazarCobro(l, c, trip) {
     }
     guardar(); pintarPanel(); render();
   };
+  const cm = $("cComent");
+  if (cm) cm.oninput = () => { l.comentarioCierre = cm.value; clearTimeout(cm._t); cm._t = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }, 400); };
   const cl = $("cCerrarLiq");
   if (cl) cl.onclick = () => {
+    LIBRO = null;
     const cc = calc(l); if (cc.pendiente !== 0) return;
+    l.creditos = cc.creditos.map(u => ({ ...u }));
+    if (cm) l.comentarioCierre = cm.value.trim();
     l.estado = "cerrada"; l.cerradaEn = new Date().toISOString();
     l.precios = { ...S.precios }; l.tripulacion = tripLiq({ ...l, estado: "abierta" });
     guardar(); toast("Liquidación cerrada."); pintarPanel(); render();
@@ -753,7 +913,9 @@ function enlazarCobro(l, c, trip) {
   const ra = $("cReabrir");
   if (ra) ra.onclick = () => {
     if (!ra.dataset.ok) { ra.dataset.ok = 1; ra.textContent = "¿Seguro? Clic otra vez"; setTimeout(() => { if (ra.isConnected) { delete ra.dataset.ok; ra.textContent = "Reabrir"; } }, 3000); return; }
-    l.estado = "abierta"; delete l.cerradaEn; guardar(); pintarPanel(); render();
+    const f = libro().fuentes[l.id];
+    if (f && f.usos.some(u => u.l.estado === "cerrada")) return toast("Su saldo a favor ya se usó en otra liquidación cerrada. Reabre primero esa.");
+    l.estado = "abierta"; delete l.cerradaEn; delete l.creditos; guardar(); pintarPanel(); render();
   };
 }
 
@@ -836,13 +998,14 @@ function vReporte(m) {
   m.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => abrirLiqId(b.dataset.ver));
   m.querySelectorAll("[data-desg]").forEach(b => b.onclick = () => $("d_" + b.dataset.desg).classList.toggle("on"));
   m.querySelectorAll("[data-col]").forEach(b => b.onclick = () => $("col_" + b.dataset.col).classList.toggle("on"));
-  $("rExcel").onclick = () => exportarReporte(ls);
+  $("rExcel").onclick = () => exportarReporte(ls, REP.desde, REP.hasta);
 }
 
 // =====================================================================
 // VISTA: Trazabilidad
 // =====================================================================
-let TZ = { q: "", desde: "", hasta: "", seccion: "", tipo: "" };
+let TZ = { q: "", desde: "", hasta: "", seccion: "", tipo: "", tab: "lineas" };
+let TC = { q: "", sel: null };
 function filasTraza() {
   const out = [];
   Object.values(S.liqs).filter(l => l.pdf).forEach(l => {
@@ -858,6 +1021,13 @@ function coincideTexto(q, l, v, trip, extra = "") {
   return sinTilde(q).split(/\s+/).filter(Boolean).every(w => hay.includes(w) || norm(hay).includes(norm(w)));
 }
 function vTraza(m) {
+  if (TZ.tab === "colab") vColab(m); else vTrazaLineas(m);
+  m.insertAdjacentHTML("afterbegin", `<div class="tabs"><div class="seg">
+    <button data-tab="lineas" class="${TZ.tab !== "colab" ? "on" : ""}">📦 Faltantes y sobrantes</button>
+    <button data-tab="colab" class="${TZ.tab === "colab" ? "on" : ""}">👤 Por colaborador</button></div></div>`);
+  m.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { TZ.tab = b.dataset.tab; render(); });
+}
+function vTrazaLineas(m) {
   const todas = filasTraza();
   const f = todas.filter(({ l, v, trip, x }) =>
     (!TZ.desde || l.fecha >= TZ.desde) && (!TZ.hasta || l.fecha <= TZ.hasta) && (!TZ.seccion || x.seccion === TZ.seccion) &&
@@ -891,7 +1061,7 @@ function vTraza(m) {
       ${f.length ? `<table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Viaje</th><th>Tripulación</th><th>Sección</th><th>Código</th><th>Descripción</th><th class="num">Dif.</th><th class="num">Dinero</th><th></th></tr></thead><tbody>
       ${f.slice(0, 500).map(({ l, v, trip, x }) => `<tr><td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}</td><td>${esc(l.pdf.enc.viaje)}</td>
         <td style="font-size:12px">${trip.map(t => esc(t.nombre)).join(", ") || "—"}</td><td>${x.seccion}</td><td>${esc(x.codigo)}</td><td>${esc(x.nombre)}</td>
-        <td class="num"><span class="tag ${cls(x.diferencia)}">${und(x.diferencia)}</span></td><td class="num ${cls(x.dinero || 0)}">${x.dinero == null ? "—" : soles(x.dinero)}</td>
+        <td class="num"><span class="tag ${cls(x.diferencia)}">${und(x.diferencia)}</span>${x.ajuste ? `<br><small class="ayuda">PDF ${und(x.difPdf)} · ZPD ${und(x.ajuste)}</small>` : ""}</td><td class="num ${cls(x.dinero || 0)}">${x.dinero == null ? "—" : soles(x.dinero)}</td>
         <td><button data-ver="${l.id}">Ver</button></td></tr>`).join("")}
       </tbody></table>${f.length > 500 ? `<p class="ayuda">Mostrando 500 de ${f.length}. Exporta a Excel para ver todo.</p>` : ""}` : `<div class="vacio">No hay resultados.</div>`}
     </div>
@@ -910,9 +1080,93 @@ function vTraza(m) {
   $("tH").onchange = e => { TZ.hasta = e.target.value; render(); };
   $("tS").onchange = e => { TZ.seccion = e.target.value; render(); };
   $("tT").onchange = e => { TZ.tipo = e.target.value; render(); };
-  $("tLimpiar").onclick = () => { TZ = { q: "", desde: "", hasta: "", seccion: "", tipo: "" }; render(); };
+  $("tLimpiar").onclick = () => { TZ = { q: "", desde: "", hasta: "", seccion: "", tipo: "", tab: "lineas" }; render(); };
   m.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => abrirLiqId(b.dataset.ver));
   $("tExcel").onclick = () => exportarTraza(f, cobros);
+}
+
+// ---------- Trazabilidad por colaborador
+function indiceColab() {
+  const idx = {};
+  const get = (o, k = pkey(o)) => idx[k] = idx[k] || { key: k, nombre: o.nombre, dni: o.dni || "", ev: [] };
+  S.personal.forEach(p => get({ personaId: p.id, nombre: p.nombre, dni: p.dni }));
+  const L = libro();
+  Object.values(S.liqs).filter(l => l.pdf).forEach(l => {
+    const v = vehiculo(l.vehId) || {}, c = calc(l);
+    tripLiq(l).forEach(t => get(t).ev.push({ fecha: l.fecha, l, v, tipo: "Liquidación",
+      det: `${t.funcion} · viaje ${l.pdf.enc.viaje} · ${l.estado === "cerrada" ? "cerrada" : "en proceso"}${(l.ajustes || []).length ? ` · ${l.ajustes.length} ajuste(s) ZPD/nota` : ""}${l.comentarioCierre ? ` · “${l.comentarioCierre}”` : ""}`, monto: c.neto, nota: "Neto del vehículo" }));
+    (l.cobros || []).forEach(x => get(x).ev.push({ fecha: l.fecha, l, v, tipo: x.tipo === "pago" ? "Pago" : "Descuento",
+      det: x.tipo === "pago" ? `${x.medio}${x.operacion ? " · Op. " + x.operacion : ""}` : (x.modo === "tripulacion" ? "Partes iguales con la tripulación" : "Descuento directo"),
+      monto: x.tipo === "pago" ? x.monto : -x.monto }));
+  });
+  Object.values(L.fuentes).forEach(f => {
+    const p = get({ nombre: f.owner.nombre, dni: f.owner.dni }, f.owner.key), v = vehiculo(f.l.vehId) || {};
+    p.ev.push({ fecha: f.fecha, l: f.l, v, tipo: "Saldo a favor generado", det: `Sobrante de vacíos · vence ${fmtF(f.vence)} · ${f.estado}`, monto: f.monto });
+    f.usos.forEach(u => p.ev.push({ fecha: u.l.fecha, l: u.l, v: vehiculo(u.l.vehId) || {}, tipo: "Saldo a favor aplicado", det: `Cubrió faltante (saldo del ${fmtF(f.fecha)})`, monto: -u.monto }));
+    if (f.estado === "Vencido") p.ev.push({ fecha: f.vence, l: f.l, v, tipo: "Saldo vencido", det: "Ya no se puede usar · queda como sobrante en historial", monto: -f.saldo });
+  });
+  Object.values(idx).forEach(p => p.ev.sort((a, b) => b.fecha.localeCompare(a.fecha)));
+  return idx;
+}
+const TIPO_TAG = { "Liquidación": "azul", "Pago": "pos", "Descuento": "neg", "Saldo a favor generado": "pos", "Saldo a favor aplicado": "warn", "Saldo vencido": "ok" };
+function resumenColab(p) {
+  const ev = p.ev.filter(e => (!TZ.desde || e.fecha >= TZ.desde) && (!TZ.hasta || e.fecha <= TZ.hasta));
+  const sum = t => r2(ev.filter(e => e.tipo === t).reduce((a, e) => a + Math.abs(e.monto), 0));
+  const vig = Object.values(libro().fuentes).filter(f => f.owner.key === p.key && f.estado === "Vigente").reduce((a, f) => a + f.saldo, 0);
+  return { ev, liqs: ev.filter(e => e.tipo === "Liquidación").length, pagado: sum("Pago"), descontado: sum("Descuento"),
+    generado: sum("Saldo a favor generado"), aplicado: sum("Saldo a favor aplicado"), vencido: sum("Saldo vencido"), vigente: r2(vig) };
+}
+function vColab(m) {
+  const idx = indiceColab(), sel = TC.sel && idx[TC.sel];
+  const filtros = `<div class="card"><div class="row">
+      ${sel ? `<button id="cVolver">← Todos los colaboradores</button>` : `<label class="f grow">Buscar colaborador (nombre o DNI)<input id="cQ" value="${esc(TC.q)}" placeholder="Ej. 45879632 o Guillermo"></label>`}
+      <label class="f">Desde<input type="date" id="tD" value="${TZ.desde}"></label>
+      <label class="f">Hasta<input type="date" id="tH" value="${TZ.hasta}"></label>
+      ${sel ? `<div class="grow"></div><button class="primary" id="cExcel">Exportar Excel</button>` : ""}
+    </div></div>`;
+  if (!sel) {
+    const lista = Object.values(idx).filter(p => hayQ(TC.q, p.nombre + " " + p.dni)).map(p => ({ p, r: resumenColab(p) }))
+      .sort((a, b) => (b.r.ev.length > 0) - (a.r.ev.length > 0) || a.p.nombre.localeCompare(b.p.nombre));
+    m.innerHTML = filtros + `<div class="card scroll"><h2>Colaboradores (${lista.length})</h2>
+      ${lista.length ? `<table><thead><tr><th>Colaborador</th><th>DNI</th><th class="num">Liquidaciones</th><th class="num">Pagado</th><th class="num">Descontado</th><th class="num">Saldo a favor vigente</th><th></th></tr></thead><tbody>
+      ${lista.map(({ p, r }) => `<tr><td><b>${esc(p.nombre)}</b></td><td>${esc(p.dni)}</td><td class="num">${r.liqs}</td>
+        <td class="num pos">${soles(r.pagado, false)}</td><td class="num neg">${soles(r.descontado, false)}</td><td class="num pos">${r.vigente ? soles(r.vigente, false) : "—"}</td>
+        <td><button data-selc="${esc(p.key)}">Ver historial</button></td></tr>`).join("")}</tbody></table>` : `<div class="vacio">No hay colaboradores que coincidan.</div>`}</div>`;
+  } else {
+    const r = resumenColab(sel);
+    m.innerHTML = filtros + `
+      <div class="card" style="padding:12px 16px"><h2 style="margin:0">${esc(sel.nombre)}</h2><span class="ayuda">${sel.dni ? "DNI " + esc(sel.dni) : "Sin DNI registrado"}</span></div>
+      <div class="kpis">
+        <div class="kpi"><span>Liquidaciones</span><b>${r.liqs}</b></div>
+        <div class="kpi"><span>Pagado</span><b class="pos">${soles(r.pagado, false)}</b></div>
+        <div class="kpi"><span>Descontado</span><b class="neg">${soles(r.descontado, false)}</b></div>
+        <div class="kpi"><span>Saldo a favor generado</span><b class="pos">${soles(r.generado, false)}</b></div>
+        <div class="kpi"><span>Saldo aplicado</span><b>${soles(r.aplicado, false)}</b></div>
+        <div class="kpi"><span>Saldo vigente</span><b class="pos">${soles(r.vigente, false)}</b></div>
+        <div class="kpi"><span>Saldo vencido</span><b>${soles(r.vencido, false)}</b></div>
+      </div>
+      <div class="card scroll"><h2>Historial</h2>
+        ${r.ev.length ? `<table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Movimiento</th><th>Detalle</th><th class="num">Monto</th><th></th></tr></thead><tbody>
+        ${r.ev.map(e => `<tr><td>${fmtF(e.fecha)}</td><td><b>${esc(e.v.placa)}</b>${e.v.bk ? " — " + esc(e.v.bk) : ""}</td>
+          <td><span class="tag ${TIPO_TAG[e.tipo]}">${e.tipo}</span></td><td style="font-size:12.5px">${esc(e.det)}${e.nota ? ` <small class="ayuda">(${e.nota})</small>` : ""}</td>
+          <td class="num ${cls(e.monto)}">${soles(e.monto)}</td><td><button data-ver="${e.l.id}">Ver</button></td></tr>`).join("")}
+        </tbody></table>` : `<div class="vacio">Sin movimientos en este rango.</div>`}</div>`;
+    $("cVolver").onclick = () => { TC.sel = null; render(); };
+    $("cExcel").onclick = () => {
+      const wb = new ExcelJS.Workbook();
+      hoja(wb, "Historial", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Movimiento", "Detalle", "Monto S/"],
+        r.ev.map(e => [fmtF(e.fecha), e.v.placa, e.v.bk, e.l.pdf.enc.viaje, e.tipo, e.det, e.monto]), [6], 6);
+      hoja(wb, "Resumen", ["Colaborador", "DNI", "Liquidaciones", "Pagado S/", "Descontado S/", "Saldo generado S/", "Saldo aplicado S/", "Saldo vigente S/", "Saldo vencido S/"],
+        [[sel.nombre, sel.dni, r.liqs, r.pagado, r.descontado, r.generado, r.aplicado, r.vigente, r.vencido]], [3, 4, 5, 6, 7, 8]);
+      guardarWb(wb, `trazabilidad_${sinTilde(sel.nombre).replace(/[^a-z0-9]+/g, "_")}.xlsx`);
+    };
+  }
+  const q = $("cQ");
+  if (q) q.oninput = () => { TC.q = q.value; clearTimeout(q._t); q._t = setTimeout(() => { const pos = q.selectionStart; render(); const n = $("cQ"); n.focus(); n.setSelectionRange(pos, pos); }, 250); };
+  $("tD").onchange = e => { TZ.desde = e.target.value; render(); };
+  $("tH").onchange = e => { TZ.hasta = e.target.value; render(); };
+  m.querySelectorAll("[data-selc]").forEach(b => b.onclick = () => { TC.sel = b.dataset.selc; render(); window.scrollTo({ top: 0 }); });
+  m.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => abrirLiqId(b.dataset.ver));
 }
 
 // =====================================================================
@@ -1186,9 +1440,10 @@ async function guardarWb(wb, nombre) {
 function filasLiq(ls) {
   return ls.map(l => { const c = calc(l), v = vehiculo(l.vehId) || {}, e = l.pdf.enc;
     return [fmtF(l.fecha), v.placa, v.bk, e.viaje, e.placa, e.conductor, e.revisor, tripLiq(l).map(t => `${t.nombre} (${t.funcion})`).join(", "),
-      l.estado === "cerrada" ? "Cerrada" : "En proceso", c.bot, c.caj, c.sobr, c.falt, c.neto, c.aFavor, c.aCobrar, c.pagado, c.descontado, c.pendiente]; });
+      l.estado === "cerrada" ? "Cerrada" : "En proceso", c.bot, c.caj, c.sobr, c.falt, c.neto, c.aFavor, c.credito, c.aCobrar, c.pagado, c.descontado, c.pendiente,
+      (l.ajustes || []).filter(a => a.codigo !== "COMENTARIO").map(a => `${a.codigo} ${a.cantidad} ${a.codigoMat}`).join("; "), l.comentarioCierre || ""]; });
 }
-const COLS_LIQ = ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Placa PDF", "Conductor PDF", "Revisor", "Tripulación", "Estado", "Botellas", "Cajas", "Sobrante S/", "Faltante S/", "Neto S/", "Sobrante a favor S/", "A cobrar S/", "Pagado S/", "Descuento S/", "Pendiente S/"];
+const COLS_LIQ = ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Placa PDF", "Conductor PDF", "Revisor", "Tripulación", "Estado", "Botellas", "Cajas", "Sobrante S/", "Faltante S/", "Neto S/", "Sobrante a favor S/", "Saldo a favor aplicado S/", "A cobrar S/", "Pagado S/", "Descuento S/", "Pendiente S/", "Ajustes ZPD", "Comentario de cierre"];
 function filasCobros(ls, tipo) {
   const out = [];
   ls.forEach(l => { const v = vehiculo(l.vehId) || {};
@@ -1199,12 +1454,30 @@ function filasCobros(ls, tipo) {
 }
 function filasDif(items) {
   return items.map(({ l, v, trip, x }) => [fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, trip.map(t => t.nombre).join(", "), trip.map(t => t.dni).filter(Boolean).join(", "),
-    x.seccion, x.codigo, x.nombre, x.conductor, x.sistema, x.diferencia, x.tipo || "", x.precio, x.dinero]);
+    x.seccion, x.codigo, x.nombre, x.conductor, x.sistema, x.difPdf ?? x.diferencia, x.ajuste || 0, x.diferencia, x.tipo || "", x.precio, x.dinero]);
 }
-const COLS_DIF = ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Tripulación", "DNI tripulación", "Sección", "Código", "Descripción", "Conductor (cant.)", "Sistema (cant.)", "Diferencia", "Tipo envase", "Precio", "Dinero S/"];
-function exportarReporte(ls) {
+const COLS_DIF = ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Tripulación", "DNI tripulación", "Sección", "Código", "Descripción", "Conductor (cant.)", "Sistema (cant.)", "Dif. PDF", "Ajuste ZPD", "Diferencia final", "Tipo envase", "Precio", "Dinero S/"];
+function exportarReporte(ls, desde, hasta) {
+  if (typeof ExcelJS === "undefined") return toast("No se pudo cargar la librería de Excel (revisa tu internet).");
   const wb = new ExcelJS.Workbook();
-  hoja(wb, "Liquidaciones", COLS_LIQ, filasLiq(ls), [11, 12, 13, 14, 15, 16, 17, 18], 13);
+  // Cuadre de caja: dinero recibido por día y medio de pago
+  const porDia = {};
+  ls.forEach(l => {
+    const c = calc(l), d = porDia[l.fecha] = porDia[l.fecha] || { medios: {}, desc: 0, saldo: 0, aCobrar: 0, pend: 0, n: 0, abiertas: 0 };
+    d.n++; if (l.estado !== "cerrada") d.abiertas++;
+    d.desc = r2(d.desc + c.descontado); d.saldo = r2(d.saldo + c.credito); d.aCobrar = r2(d.aCobrar + c.aCobrar); d.pend = r2(d.pend + Math.max(c.pendiente, 0));
+    (l.cobros || []).filter(x => x.tipo === "pago").forEach(x => d.medios[x.medio] = r2((d.medios[x.medio] || 0) + x.monto));
+  });
+  const filasCaja = Object.keys(porDia).sort().map(fe => { const d = porDia[fe]; const rec = r2(MEDIOS.reduce((a, mm) => a + (d.medios[mm] || 0), 0));
+    return [fmtF(fe), d.n, d.abiertas, d.aCobrar, ...MEDIOS.map(mm => d.medios[mm] || 0), rec, d.desc, d.saldo, d.pend]; });
+  const tot = ["TOTAL", 0, 0, ...Array(MEDIOS.length + 5).fill(0)];
+  filasCaja.forEach(r => r.forEach((v, i) => { if (i > 0) tot[i] = r2(tot[i] + v); }));
+  filasCaja.push(tot);
+  const wcaja = hoja(wb, "Cuadre de caja", ["Fecha", "Liquidaciones", "Sin cerrar", "A cobrar S/", ...MEDIOS.map(mm => mm + " S/"), "Total recibido S/", "Descontado S/", "Saldo a favor aplicado S/", "Pendiente S/"],
+    filasCaja, [3, ...MEDIOS.map((_, i) => 4 + i), 4 + MEDIOS.length, 5 + MEDIOS.length, 6 + MEDIOS.length, 7 + MEDIOS.length]);
+  wcaja.lastRow.font = { bold: true };
+  wcaja.orderNo = -2;
+  hoja(wb, "Liquidaciones", COLS_LIQ, filasLiq(ls), [11, 12, 13, 14, 15, 16, 17, 18, 19], 13);
   hoja(wb, "Pagos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Pagó", "DNI", "Medio", "Nº operación", "Monto S/"], filasCobros(ls, "pago"), [8]);
   hoja(wb, "Descuentos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Persona", "DNI", "Tipo", "Monto S/"], filasCobros(ls, "descuento"), [7]);
   const col = {};
@@ -1216,12 +1489,16 @@ function exportarReporte(ls) {
   wc.lastRow.font = { bold: true };
   wc.orderNo = -1;
   const items = []; ls.forEach(l => { const v = vehiculo(l.vehId) || {}, trip = tripLiq(l); calc(l).lineas.forEach(x => items.push({ l, v, trip, x })); });
-  hoja(wb, "Diferencias", COLS_DIF, filasDif(items), [13, 14], 11);
-  guardarWb(wb, `reporte_liquidaciones_${REP.desde}${REP.hasta !== REP.desde ? "_al_" + REP.hasta : ""}.xlsx`);
+  hoja(wb, "Diferencias", COLS_DIF, filasDif(items), [15, 16], 13);
+  const ajs = []; ls.forEach(l => { const v = vehiculo(l.vehId) || {}; (l.ajustes || []).forEach(a => ajs.push([fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje,
+    a.codigo === "COMENTARIO" ? "Nota" : a.codigo, a.seccion, a.codigoMat, a.nombre, a.codigo === "COMENTARIO" ? "" : a.cantidad,
+    a.codigo === "ZPD7" ? "Quita faltante" : a.codigo === "ZPD4" ? "Agrega faltante" : "", a.comentario || ""])); });
+  hoja(wb, "Ajustes y comentarios", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Código", "Sección", "Material", "Descripción", "Cantidad", "Efecto", "Comentario"], ajs);
+  guardarWb(wb, `cuadre_caja_${desde}${hasta !== desde ? "_al_" + hasta : ""}.xlsx`);
 }
 function exportarTraza(f, cobros) {
   const wb = new ExcelJS.Workbook();
-  hoja(wb, "Faltantes y sobrantes", COLS_DIF, filasDif(f), [13, 14], 11);
+  hoja(wb, "Faltantes y sobrantes", COLS_DIF, filasDif(f), [15, 16], 13);
   hoja(wb, "Pagos y descuentos", ["Fecha", "Placa", "Nombre comercial", "Persona", "DNI", "Tipo", "Detalle", "Monto S/"],
     cobros.map(({ l, v, c }) => [fmtF(l.fecha), v.placa, v.bk, c.nombre, c.dni, c.tipo === "pago" ? "Pago" : "Descuento", c.tipo === "pago" ? c.medio : (c.modo === "tripulacion" ? "Partes iguales" : ""), c.monto]), [7]);
   guardarWb(wb, `trazabilidad_${hoyISO()}.xlsx`);
