@@ -272,12 +272,21 @@ async function leerPdf(pdfjsLib, buffer) {
 const _st = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const RE_PLACA_T = /^(?:[A-Z]{2})?(?=[A-Z0-9]{0,2}[A-Z])[A-Z0-9]{3}-?\d{3}$/;
 const RE_FECHA_T = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/;
+function distEd(a, b) {   // distancia de edición (para tolerar errores de lectura: "Repario", "Chafer")
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+const ROLES_T = [["CHOFER", ["chofer", "conductor", "piloto"]], ["REPARTO", ["reparto", "repartidor"]], ["AUXILIAR APOYO", ["apoyo"]], ["AUXILIAR", ["auxiliares", "auxiliar"]]];
 function rolTrip(t) {
   const s = _st(t).replace(/[^a-z]/g, "");
-  if (/^(chofer|chofe|conductor|piloto)/.test(s)) return "CHOFER";
-  if (/^repart/.test(s)) return "REPARTO";
-  if (/^auxiliar/.test(s) || s === "aux") return "AUXILIAR";
-  if (/^apoyo/.test(s)) return "AUXILIAR APOYO";
+  if (s.length < 3) return null;
+  for (const [rol, ws] of ROLES_T) for (const w of ws) {
+    if (s.length <= w.length && w.startsWith(s) && s.length >= 3) return rol;                 // "Aux", "Repart"
+    if (s.length >= 5 && distEd(s.slice(0, w.length), w) <= Math.floor(w.length / 3)) return rol; // "Repario", "Chafer"
+  }
   return null;
 }
 const limpiaPlaca = t => String(t).toUpperCase().replace(/[^A-Z0-9-]/g, "");
@@ -317,20 +326,33 @@ function parseTripulacion(words) {
     // filas de texto
     const filas = [];
     resto.sort((a, b) => a.yc - b.yc).forEach(w => { const f = filas.find(f => Math.abs(f.yc - w.yc) <= tol); if (f) f.ws.push(w); else filas.push({ yc: w.yc, ws: [w] }); });
+    bloques.push({ p, bkW, filas: filas.sort((a, b) => a.yc - b.yc), orden: fi * 1000 + pi });
+  }));
+  // posición típica de la columna de cargos y de la de nombres (respecto al centro de la placa)
+  const offLab = [], offNom = [];
+  bloques.forEach(B => B.filas.forEach(f => { f.ws.sort((a, b) => a.x0 - b.x0); const i = f.ws.findIndex(w => rolTrip(w.t));
+    if (i >= 0) { offLab.push(f.ws[i].x0 - B.p.xc); if (f.ws[i + 1]) offNom.push(f.ws[i + 1].x0 - B.p.xc); } }));
+  const oL = offLab.length ? mediana(offLab) : null, oN = offNom.length ? mediana(offNom) : null;
+  const SIG = { null: "CHOFER", CHOFER: "REPARTO", REPARTO: "AUXILIAR", AUXILIAR: "AUXILIAR", "AUXILIAR APOYO": "AUXILIAR APOYO" };
+  return { fecha, bloques: bloques.sort((a, b) => a.orden - b.orden).map(B => {
     const miembros = []; let rol = null;
-    filas.sort((a, b) => a.yc - b.yc).forEach(f => {
-      f.ws.sort((a, b) => a.x0 - b.x0);
+    B.filas.forEach(f => {
       const iRol = f.ws.findIndex(w => rolTrip(w.t));
       let nombreWs;
       if (iRol >= 0) { rol = rolTrip(f.ws[iRol].t); nombreWs = f.ws.filter((w, i) => i !== iRol && w.x0 >= f.ws[iRol].x0); }
-      else nombreWs = f.ws;
+      else if (oL != null && oN != null && f.ws.length > 1 && f.ws[0].x0 - B.p.xc < (oL + oN) / 2) {
+        rol = SIG[rol]; nombreWs = f.ws.slice(1);          // cargo ilegible en su columna: se deduce por el orden
+      }
+      else {                                                  // fila sin cargo: hay un solo chofer y un solo reparto por carro
+        nombreWs = f.ws;
+        if ((rol === "CHOFER" || rol === "REPARTO") && miembros.some(m => m.funcion === rol)) rol = SIG[rol];
+      }
       const nombre = nombreWs.map(w => w.t).join(" ").replace(/\s+/g, " ").trim();
       if (!rol || !nombre || /^[\W_]+$/.test(nombre)) return;
       miembros.push({ funcion: rol, nombre: nombre.toUpperCase() });
     });
-    bloques.push({ placa: limpiaPlaca(p.t), bk: bkW ? limpiaBK(bkW.t) : "", miembros, orden: fi * 1000 + pi });
-  }));
-  return { fecha, bloques: bloques.sort((a, b) => a.orden - b.orden) };
+    return { placa: limpiaPlaca(B.p.t), bk: B.bkW ? limpiaBK(B.bkW.t) : "", miembros };
+  }) };
 }
 
 
@@ -345,17 +367,25 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs
 const KEY = "segsol_liquidaciones_v2";
 const FUNCIONES = ["CHOFER", "REPARTO", "AUXILIAR", "AUXILIAR APOYO"];
 const MEDIOS = ["Efectivo", "Yape", "Plin", "Transferencia", "Depósito", "Otro"];
-const S0 = () => ({ precios: { caja: 3.8, grande: 0.6, chica: 0.5 }, preciosProd: {}, personal: [], vehiculos: [], dias: {}, liqs: {} });
+const S0 = () => ({ precios: { caja: 3.8, grande: 0.6, chica: 0.5 }, preciosProd: {}, personal: [], vehiculos: [], dias: {}, liqs: {}, tripCerrada: {}, adminHash: "" });
 let S = {
   precios: { caja: 3.8, grande: 0.6, chica: 0.5 },
   preciosProd: {},          // último precio usado por código de producto
   personal: [],             // {id, nombre, dni, funcion}
   vehiculos: [],            // {id, placa, bk}
   dias: {},                 // fecha -> {vehId: [{personaId, funcion}]}
-  liqs: {}                  // id -> liquidación
+  liqs: {},                 // id -> liquidación
+  tripCerrada: {},          // fecha -> {en}: tripulación del día cerrada (solo el administrador la reabre)
+  adminHash: ""             // contraseña de administrador (SHA-256)
 };
 try { const g = JSON.parse(localStorage.getItem(KEY) || "null"); if (g) S = Object.assign(S, g); } catch (e) {}
+S.tripCerrada = S.tripCerrada || {};
 let LIBRO = null;
+const diaCerrado = f => !!(S.tripCerrada && S.tripCerrada[f]);
+function bloqueado(f) {
+  if (!diaCerrado(f)) return false;
+  toast(`La tripulación del ${fmtF(f)} está cerrada. Solo un administrador puede reabrirla.`); return true;
+}
 const guardar = () => { LIBRO = null; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("No se pudo guardar en este navegador."); } };
 // Si la página está abierta en varias pestañas, todas usan los mismos datos: al volver a una pestaña o
 // cuando otra guarda, se recargan (así una pestaña antigua no borra lo que se cargó en otra).
@@ -414,14 +444,16 @@ function tripLiq(l) {
 // =====================================================================
 function infoEnvase(nombre, P) {
   const n = nombre.toUpperCase();
-  if (n.includes("CAJA")) return { tipo: "Caja", precio: P.caja };
-  if (n.includes("BOTELLA")) {
-    let ml = null, m = n.match(/(\d+(?:[.,]\d+)?)\s*ML/);
-    if (m) ml = parseFloat(m[1].replace(",", "."));
-    else if ((m = n.match(/(\d+(?:[.,]\d+)?)\s*(LT|L)\b/))) ml = parseFloat(m[1].replace(",", ".")) * 1000;
-    // sin "ML": tomar un número suelto de 3-4 cifras como medida (ej. "BOTELLA AMBAR BUD 600 RT")
-    if (ml == null) { const s = n.match(/\b(\d{3,4})\b/); if (s && +s[1] >= 150 && +s[1] <= 3000) ml = +s[1]; }
+  if (n.includes("CAJA") || /\bJABA\b/.test(n)) return { tipo: "Caja", precio: P.caja };
+  // medida en ml: "310ML", "1000ML", "1LT", o número suelto ("BUD 600")
+  let ml = null, m = n.match(/(\d+(?:[.,]\d+)?)\s*ML/);
+  if (m) ml = parseFloat(m[1].replace(",", "."));
+  else if ((m = n.match(/(\d+(?:[.,]\d+)?)\s*(LT|L)\b/))) ml = parseFloat(m[1].replace(",", ".")) * 1000;
+  const esBotella = /\bBOT/.test(n);                     // BOTELLA, BOT., BOT VERDE…
+  if (ml == null && esBotella) { const s2 = n.match(/\b(\d{3,4})\b/); if (s2 && +s2[1] >= 150 && +s2[1] <= 3000) ml = +s2[1]; }
+  if (esBotella || ml != null) {
     if (ml == null) return { tipo: "Botella (sin medida)", precio: null };
+    // botellas de 600 ml o más: S/ 0.60 · de 599 ml o menos: S/ 0.50
     return { tipo: "Botella " + ml + " ml", precio: ml >= 600 ? P.grande : P.chica };
   }
   return { tipo: "Otro", precio: null };
@@ -742,7 +774,7 @@ async function cargarPdfs(files, vehId, abrir, nFijo) {
           MSGS.push(["m-warn", `${f.name}: la placa ${pdf.enc.placa} no estaba registrada; se creó el vehículo. Asígnale su BK y tripulación en Tripulación del día.`]);
         }
       }
-      if (S.dias[FECHA] === undefined || S.dias[FECHA][destino] === undefined) {   // el vehículo liquidado figura en la tripulación del día
+      if (!diaCerrado(FECHA) && (S.dias[FECHA] === undefined || S.dias[FECHA][destino] === undefined)) {   // el vehículo liquidado figura en la tripulación del día
         (S.dias[FECHA] = S.dias[FECHA] || {})[destino] = (S.dias[FECHA] || {})[destino] || [];
       }
       let n = nFijo;
@@ -850,6 +882,7 @@ function pintarPanel() {
     ${l.incluirProductos && c.prodSinPrecio ? `<p class="ayuda m-warn">Hay ${c.prodSinPrecio} producto(s) sin precio: no suman al cobro hasta que les pongas precio.</p>` : ""}
     ${tablaSeccion("Bloqueados", secs.has("Bloqueados"), c.lineas, "otros", l)}
     ${tablaSeccion("Vacíos", secs.has("Vacíos"), c.lineas, "vacios", l)}
+    ${(() => { const sp = c.lineas.filter(x => x.seccion === "Vacíos" && x.precio == null); return sp.length ? `<p class="ayuda m-warn">⚠ ${sp.length} envase(s) sin precio no suman al cobro: ${sp.map(x => esc(x.nombre)).join(", ")}. No se pudo saber si es caja o botella ni su medida.</p>` : ""; })()}
     ${secs.has("Activos") ? tablaSeccion("Activos", true, c.lineas, "otros", l) : ""}
     <p class="ayuda">Archivo: ${esc(l.pdf.archivo)}${l.pdf.rep ? ` · Reproceso R${l.pdf.rep}` : ""}
       ${!cerrada ? ` · <a href="#" id="pCambiar">Cambiar PDF</a>` : ""}</p>
@@ -1016,8 +1049,11 @@ function infoSaldo(l, c, trip) {
   const f = c.fuente, box = t => `<div class="card" style="margin-top:10px;padding:10px 14px;border-color:#bfe3c9;background:#f3fbf5">${t}</div>`;
   if (l.estado !== "cerrada") {
     const rep = trip.find(t => String(t.funcion).toUpperCase() === "REPARTO");
-    return box(rep ? `💚 Al cerrar, el sobrante de <b>${soles(c.aFavor, false)}</b> quedará como saldo a favor de <b>${esc(rep.nombre)}</b> (REPARTO) para cubrir sus faltantes hasta el <b>${fmtF(addDias(l.fecha, DIAS_SALDO))}</b>.`
-      : `⚠ No hay tripulante con rol <b>REPARTO</b>: el sobrante de ${soles(c.aFavor, false)} quedará solo en el historial.`);
+    if (rep) return box(`💚 Al cerrar, el sobrante de <b>${soles(c.aFavor, false)}</b> quedará como saldo a favor de <b>${esc(rep.nombre)}</b> (REPARTO) para cubrir sus faltantes hasta el <b>${fmtF(addDias(l.fecha, DIAS_SALDO))}</b>.`);
+    const v = vehiculo(l.vehId) || {};
+    return box(!trip.length
+      ? `⚠ <b>${esc(v.placa)}</b> no tiene tripulación asignada el ${fmtF(l.fecha)}. Asígnala en <b>Tripulación del día</b> (con su REPARTO) antes de cerrar; si no, el sobrante de ${soles(c.aFavor, false)} quedará solo en el historial.`
+      : `⚠ En la tripulación de <b>${esc(v.placa)}</b> nadie tiene el rol <b>REPARTO</b> (${trip.map(t => esc(t.nombre) + ": " + esc(t.funcion)).join(" · ")}). Corrige la función en <b>Tripulación del día</b> antes de cerrar; si no, el sobrante de ${soles(c.aFavor, false)} quedará solo en el historial.`);
   }
   if (!f) return box(`El sobrante de ${soles(c.aFavor, false)} quedó solo en el historial (no había tripulante con rol REPARTO).`);
   const est = { Vigente: `<span class="tag pos">Vigente hasta ${fmtF(f.vence)}</span>`, Aplicado: `<span class="tag azul">Aplicado</span>`, Vencido: `<span class="tag ok">Vencido el ${fmtF(f.vence)} · queda en historial</span>` }[f.estado];
@@ -1363,7 +1399,7 @@ function vTripulacion(m) {
   const dia = S.dias[FECHA] || {};
   const asignados = new Set(Object.values(dia).flat().map(t => t.personaId));
   const lista = S.personal.filter(p => hayQ(BUSCA_P, p.nombre + " " + p.dni));
-  const delDia = vehiculosDelDia(FECHA);
+  const delDia = vehiculosDelDia(FECHA), cerr = diaCerrado(FECHA);
   const vehsF = delDia.filter(v => hayQ(BUSCA_P, [v.placa, v.bk, ...tripDia(FECHA, v.id).map(t => t.p.nombre + " " + (t.p.dni || ""))].join(" ")));
   const fuera = S.vehiculos.filter(v => !delDia.includes(v));
   // historial
@@ -1375,31 +1411,34 @@ function vTripulacion(m) {
       <label class="f">Fecha<input type="date" id="trFecha" value="${FECHA}"></label>
       <label class="f grow">Buscar (nombre, DNI, placa, nombre comercial o viaje)<input id="trBusca" value="${esc(BUSCA_P)}" placeholder="Ej. 45879632, BMX-740, BK3788, Guillermo"></label>
       <button id="trLimpiar">Limpiar</button>
-      <button class="primary" id="trImportar">📷 Importar tripulación (imagen, PDF o Excel)</button>
+      ${cerr ? `<span class="tag ok" style="font-size:12.5px;padding:6px 12px">🔒 Tripulación cerrada el ${new Date(S.tripCerrada[FECHA].en).toLocaleString("es-PE")}</span>
+        <button id="trReabrir">🔓 Reabrir (administrador)</button>`
+      : `<button class="primary" id="trImportar">📷 Importar tripulación (imagen, PDF o Excel)</button>
       <button id="trCopiar">Copiar del día anterior</button>
       <button class="danger" id="trVaciar" ${Object.keys(dia).length ? "" : "disabled"}>Vaciar día</button>
+      <button class="ok" id="trCerrar" ${Object.keys(dia).length ? "" : "disabled"}>🔒 Cerrar tripulación del día</button>`}
     </div>
     <div class="row" style="margin-top:10px;align-items:center">
-      <span class="ayuda" style="margin:0">Se muestran solo los vehículos que salieron el <b>${fmtF(FECHA)}</b>${BUSCA_P ? " y coinciden con la búsqueda" : ""}. Arrastra a cada persona hacia su vehículo (o usa “+ Agregar” en la tarjeta).</span>
+      <span class="ayuda" style="margin:0">Se muestran solo los vehículos que salieron el <b>${fmtF(FECHA)}</b>${BUSCA_P ? " y coinciden con la búsqueda" : ""}. ${cerr ? " La tripulación está cerrada: no se puede modificar." : " Arrastra a cada persona hacia su vehículo (o usa “+ Agregar” en la tarjeta)."}</span>
       <div class="grow"></div>
-      <select id="trAddVeh" ${fuera.length ? "" : "disabled"}><option value="">+ Agregar vehículo a este día…</option>${fuera.map(v => `<option value="${v.id}">${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</option>`).join("")}</select>
+      <select id="trAddVeh" ${fuera.length ? "" : "disabled"} ${cerr ? 'style="display:none"' : ""}><option value="">+ Agregar vehículo a este día…</option>${fuera.map(v => `<option value="${v.id}">${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</option>`).join("")}</select>
     </div></div>
     ${!S.vehiculos.length || !S.personal.length ? `<div class="card m-warn">Primero registra ${!S.vehiculos.length ? "<b>vehículos</b>" : ""}${!S.vehiculos.length && !S.personal.length ? " y " : ""}${!S.personal.length ? "<b>personal</b>" : ""} en sus apartados del menú.</div>` : ""}
     <div class="dos">
       <div class="card"><h2>Personal (${lista.length}${lista.length !== S.personal.length ? " de " + S.personal.length : ""})</h2>
-        <div class="chips">${lista.map(p => `<span class="chip ${asignados.has(p.id) ? "usado" : ""}" draggable="true" data-p="${p.id}" title="DNI ${esc(p.dni)}">${esc(p.nombre)} <small>${esc(p.funcion || "")}</small></span>`).join("") || `<span class="vacio">Sin resultados.</span>`}</div>
+        <div class="chips">${lista.map(p => `<span class="chip ${asignados.has(p.id) ? "usado" : ""}" draggable="${cerr ? "false" : "true"}" data-p="${p.id}" title="DNI ${esc(p.dni)}">${esc(p.nombre)} <small>${esc(p.funcion || "")}</small></span>`).join("") || `<span class="vacio">Sin resultados.</span>`}</div>
       </div>
       <div class="grid-veh">${vehsF.length ? vehsF.map(v => {
         const t = tripDia(FECHA, v.id);
         return `<div class="veh" data-vt="${v.id}" style="cursor:default">
-          <div class="vh"><span>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</span><span><span class="tag azul">${t.length}</span>${liqsDe(FECHA, v.id).some(l => l.pdf) ? "" : `<button class="x" data-quitveh="${v.id}" title="Quitar vehículo de este día">✕</button>`}</span></div>
+          <div class="vh"><span>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</span><span><span class="tag azul">${t.length}</span>${cerr || liqsDe(FECHA, v.id).some(l => l.pdf) ? "" : `<button class="x" data-quitveh="${v.id}" title="Quitar vehículo de este día">✕</button>`}</span></div>
           ${t.length ? `<table><thead><tr><th></th><th class="num">Función</th><th></th></tr></thead><tbody>${t.map(x => `<tr>
             <td>${esc(x.p.nombre)}${x.p.dni ? `<br><small class="ayuda">DNI ${esc(x.p.dni)}</small>` : ""}</td>
-            <td class="num"><select data-fun="${v.id}|${x.personaId}" style="padding:2px 4px;font-size:11px">${FUNCIONES.concat(FUNCIONES.includes(x.funcion) ? [] : [x.funcion]).map(f => `<option ${f === x.funcion ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></td>
-            <td><button class="x" data-quitar="${v.id}|${x.personaId}">✕</button></td></tr>`).join("")}</tbody></table>`
-            : `<div class="sin">Suelta aquí a la tripulación</div>`}
-          <div class="vf"><select data-add="${v.id}" style="width:100%;font-size:12px"><option value="">+ Agregar persona…</option>
-            ${S.personal.filter(p => !asignados.has(p.id)).map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></div>
+            <td class="num">${cerr ? `<b style="font-size:11.5px">${esc(x.funcion)}</b>` : `<select data-fun="${v.id}|${x.personaId}" style="padding:2px 4px;font-size:11px">${FUNCIONES.concat(FUNCIONES.includes(x.funcion) ? [] : [x.funcion]).map(f => `<option ${f === x.funcion ? "selected" : ""}>${esc(f)}</option>`).join("")}</select>`}</td>
+            <td>${cerr ? "" : `<button class="x" data-quitar="${v.id}|${x.personaId}">✕</button>`}</td></tr>`).join("")}</tbody></table>`
+            : `<div class="sin">${cerr ? "Sin tripulación" : "Suelta aquí a la tripulación"}</div>`}
+          ${cerr ? "" : `<div class="vf"><select data-add="${v.id}" style="width:100%;font-size:12px"><option value="">+ Agregar persona…</option>
+            ${S.personal.filter(p => !asignados.has(p.id)).map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></div>`}
         </div>`; }).join("") : `<div class="card vacio">${delDia.length ? "Ningún vehículo coincide con la búsqueda." : `No hay vehículos registrados para el ${fmtF(FECHA)}. Usa <b>📷 Importar tripulación</b>, <b>Copiar del día anterior</b> o <b>+ Agregar vehículo a este día</b>.`}</div>`}</div>
     </div>
     <div class="row" style="margin-top:22px;align-items:center"><h2 style="margin:0">Historial de viajes ${BUSCA_P ? "que coinciden con “" + esc(BUSCA_P) + "”" : HIST_TODAS ? "(todas las fechas)" : "del " + fmtF(FECHA)}</h2>
@@ -1438,42 +1477,90 @@ function vTripulacion(m) {
     render();
   });
   const tt = $("trTodas"); if (tt) tt.onclick = () => { HIST_TODAS = !HIST_TODAS; render(); };
-  $("trAddVeh").onchange = e => { const id = e.target.value; if (!id) return; (S.dias[FECHA] = S.dias[FECHA] || {})[id] = (S.dias[FECHA] || {})[id] || []; guardar(); render(); };
-  m.querySelectorAll("[data-quitveh]").forEach(x => x.onclick = () => {
+  $("trAddVeh").onchange = e => { if (bloqueado(FECHA)) return; const id = e.target.value; if (!id) return; (S.dias[FECHA] = S.dias[FECHA] || {})[id] = (S.dias[FECHA] || {})[id] || []; guardar(); render(); };
+  m.querySelectorAll("[data-quitveh]").forEach(x => x.onclick = () => { if (bloqueado(FECHA)) return;
     if (!x.dataset.ok) { x.dataset.ok = 1; x.textContent = "¿Quitar?"; setTimeout(() => { if (x.isConnected) { delete x.dataset.ok; x.textContent = "✕"; } }, 3000); return; }
     liqsDe(FECHA, x.dataset.quitveh).forEach(l => { if (!l.pdf) delete S.liqs[l.id]; });
     delete S.dias[FECHA][x.dataset.quitveh]; if (!Object.keys(S.dias[FECHA]).length) delete S.dias[FECHA];
     guardar(); render();
   });
-  $("trImportar").onclick = () => $("fileTrip").click();
+  const ti = $("trImportar"); if (ti) ti.onclick = () => $("fileTrip").click();
+  const tc = $("trCerrar"); if (tc) tc.onclick = async () => {
+    if (!S.adminHash && !(await asegurarAdmin())) return;          // primero se crea la clave de administrador
+    const sinRep = vehiculosDelDia(FECHA).filter(v => !tripDia(FECHA, v.id).some(t => t.funcion === "REPARTO")).map(v => v.placa);
+    S.tripCerrada[FECHA] = { en: new Date().toISOString() }; guardar(); render();
+    toast(`Tripulación del ${fmtF(FECHA)} cerrada.${sinRep.length ? " Atención: sin REPARTO en " + sinRep.join(", ") + "." : ""}`);
+  };
+  const tr = $("trReabrir"); if (tr) tr.onclick = async () => {
+    if (!(await asegurarAdmin(`Ingresa la contraseña de administrador para reabrir la tripulación del ${fmtF(FECHA)}.`))) return;
+    delete S.tripCerrada[FECHA]; guardar(); render(); toast("Tripulación reabierta. Ciérrala de nuevo al terminar los cambios.");
+  };
   m.querySelectorAll("[data-ver]").forEach(x => x.onclick = () => abrirLiqId(x.dataset.ver));
   m.querySelectorAll("[data-irfecha]").forEach(x => x.onclick = () => { FECHA = x.dataset.irfecha; $("fecha").value = FECHA; render(); window.scrollTo({ top: 0, behavior: "smooth" }); });
   m.querySelectorAll(".chip[data-p]").forEach(c => c.ondragstart = e => e.dataTransfer.setData("text/persona", c.dataset.p));
-  m.querySelectorAll("[data-vt]").forEach(card => {
+  if (!cerr) m.querySelectorAll("[data-vt]").forEach(card => {
     card.ondragover = e => { if ([...e.dataTransfer.types].includes("text/persona")) { e.preventDefault(); card.classList.add("over"); } };
     card.ondragleave = () => card.classList.remove("over");
     card.ondrop = e => { e.preventDefault(); card.classList.remove("over"); asignar(card.dataset.vt, e.dataTransfer.getData("text/persona")); };
   });
   m.querySelectorAll("[data-add]").forEach(s => s.onchange = () => { if (s.value) asignar(s.dataset.add, s.value); });
-  m.querySelectorAll("[data-quitar]").forEach(x => x.onclick = () => {
+  m.querySelectorAll("[data-quitar]").forEach(x => x.onclick = () => { if (bloqueado(FECHA)) return;
     const [vid, pid] = x.dataset.quitar.split("|");
     S.dias[FECHA][vid] = S.dias[FECHA][vid].filter(t => t.personaId !== pid);
     guardar(); render();
   });
-  m.querySelectorAll("[data-fun]").forEach(s => s.onchange = () => {
+  m.querySelectorAll("[data-fun]").forEach(s => s.onchange = () => { if (bloqueado(FECHA)) return;
     const [vid, pid] = s.dataset.fun.split("|");
     const t = S.dias[FECHA][vid].find(t => t.personaId === pid); t.funcion = s.value; guardar();
   });
-  $("trCopiar").onclick = () => {
+  if ($("trCopiar")) $("trCopiar").onclick = () => { if (bloqueado(FECHA)) return;
     const prev = Object.keys(S.dias).filter(d => d < FECHA && Object.keys(S.dias[d]).length).sort().pop();
     if (!prev) return toast("No hay un día anterior con tripulación.");
     S.dias[FECHA] = JSON.parse(JSON.stringify(S.dias[prev])); guardar(); render(); toast("Tripulación copiada del " + fmtF(prev) + ".");
   };
-  $("trVaciar").onclick = e => {
+  if ($("trVaciar")) $("trVaciar").onclick = e => { if (bloqueado(FECHA)) return;
     const bt = e.target; if (!bt.dataset.ok) { bt.dataset.ok = 1; bt.textContent = "¿Seguro? Clic otra vez"; setTimeout(() => { if (bt.isConnected) { delete bt.dataset.ok; bt.textContent = "Vaciar día"; } }, 3000); return; }
     delete S.dias[FECHA]; guardar(); render();
   };
 }
+// =====================================================================
+// Administrador: contraseña local (SHA-256) para reabrir una tripulación cerrada
+// =====================================================================
+function modalClave({ titulo, texto, crear }) {
+  return new Promise(res => {
+    const el = $("elige");
+    el.innerHTML = `<div class="hoja" style="max-width:440px"><h2 style="color:var(--brand)">${titulo}</h2><p class="ayuda">${texto || ""}</p>
+      <label class="f">Contraseña<input type="password" id="mk1" autocomplete="new-password"></label>
+      ${crear ? `<label class="f" style="margin-top:8px">Repetir contraseña<input type="password" id="mk2" autocomplete="new-password"></label>` : ""}
+      <div class="m-err" id="mkErr" style="min-height:18px;margin-top:6px;font-size:12.5px"></div>
+      <div class="row" style="justify-content:flex-end"><button id="mkNo">Cancelar</button><button class="primary" id="mkOk">Aceptar</button></div></div>`;
+    el.classList.add("on"); $("mk1").focus();
+    const fin = v => { el.classList.remove("on"); el.innerHTML = ""; res(v); };
+    const ok = () => { const a = $("mk1").value;
+      if (a.length < 4) return $("mkErr").textContent = "Mínimo 4 caracteres.";
+      if (crear && a !== $("mk2").value) return $("mkErr").textContent = "Las contraseñas no coinciden.";
+      fin(a); };
+    $("mkNo").onclick = () => fin(null); $("mkOk").onclick = ok;
+    el.querySelectorAll("input").forEach(i => i.onkeydown = e => { if (e.key === "Enter") ok(); });
+  });
+}
+async function hashClave(t) {
+  const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("segsol-liq|" + t));
+  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
+}
+async function asegurarAdmin(motivo) {
+  if (!S.adminHash) {
+    const c = await modalClave({ titulo: "Crear contraseña de administrador", crear: true,
+      texto: "Aún no hay administrador. Crea la contraseña que se pedirá para reabrir una tripulación cerrada. Guárdala bien: solo quien la conozca podrá modificar una tripulación cerrada." });
+    if (!c) return false;
+    S.adminHash = await hashClave(c); guardar(); toast("Contraseña de administrador creada."); return true;
+  }
+  const c = await modalClave({ titulo: "Acceso de administrador", texto: motivo || "Ingresa la contraseña de administrador." });
+  if (!c) return false;
+  if (await hashClave(c) !== S.adminHash) { toast("Contraseña incorrecta."); return false; }
+  return true;
+}
+
 // =====================================================================
 // Importar tripulación desde imagen, PDF o Excel (sin IA: OCR gratuito Tesseract.js + lectura por posiciones)
 // =====================================================================
@@ -1568,12 +1655,13 @@ function pintarImportador() {
     <div class="card"><div class="row">
       <span class="grow">Archivo: <b>${esc(I.archivo)}</b> · se encontraron <b>${I.bloques.length}</b> vehículo(s) y <b>${nP}</b> tripulante(s). Revisa y corrige antes de cargar.</span>
       <label class="f">Fecha de la tripulación<input type="date" id="impFecha" value="${I.fecha}"></label>
-    </div><p class="ayuda" style="margin:8px 0 0">★ = coincide con alguien de tu personal. “Crear nuevo” lo agrega al registro (luego puedes completar su DNI). Si una persona ya estaba en otro vehículo ese día, se moverá.</p></div>
+    </div>${diaCerrado(I.fecha) ? `<p class="m-err" style="margin:8px 0 0">🔒 La tripulación del ${fmtF(I.fecha)} está cerrada: un administrador debe reabrirla antes de importar.</p>` : ""}<p class="ayuda" style="margin:8px 0 0">★ = coincide con alguien de tu personal. “Crear nuevo” lo agrega al registro (luego puedes completar su DNI). Si una persona ya estaba en otro vehículo ese día, se moverá.</p></div>
     ${I.bloques.length ? `<div class="imp-grid">${I.bloques.map((b, i) => `
       <div class="imp-b ${b.incluir ? "" : "off"}">
         <div class="vh"><input type="checkbox" data-bi="${i}" data-k="incluir" ${b.incluir ? "checked" : ""} title="Incluir">
           <input data-bi="${i}" data-k="placa" value="${esc(b.placa)}" style="width:110px"> —
           <input data-bi="${i}" data-k="bk" value="${esc(b.bk)}" style="width:90px">
+          ${!b.miembros.some(m => m.funcion === "REPARTO") ? `<span class="tag neg">Sin REPARTO</span>` : ""}${!b.miembros.some(m => m.funcion === "CHOFER") ? `<span class="tag neg">Sin CHOFER</span>` : ""}
           ${b.vehId ? `<span class="tag pos">Registrado</span>${b.bkLeido && b.bkLeido !== b.bk ? `<small class="ayuda">leído ${esc(b.bkLeido)}</small>` : ""}` : `<span class="tag warn">Vehículo nuevo</span>`}</div>
         <table><thead><tr><th style="width:96px">Función</th><th style="width:42%">Leído</th><th>Persona</th><th style="width:28px"></th></tr></thead><tbody>
         ${b.miembros.map((m, j) => `<tr>
@@ -1609,6 +1697,7 @@ function pintarImportador() {
 }
 function confirmarImport() {
   const I = IMP, F = I.fecha; if (!F) return toast("Indica la fecha.");
+  if (bloqueado(F)) return;
   const dia = S.dias[F] = S.dias[F] || {};
   let nv = 0, np = 0, nt = 0; const creados = {};
   I.bloques.filter(b => b.incluir && b.placa).forEach(b => {
@@ -1652,6 +1741,7 @@ $("fileTrip").onchange = async e => {
   }
 };
 function asignar(vehId, personaId) {
+  if (bloqueado(FECHA)) return;
   const p = persona(personaId); if (!p) return;
   const dia = S.dias[FECHA] = S.dias[FECHA] || {};
   // si ya estaba en otro vehículo ese día, se mueve
@@ -1766,14 +1856,25 @@ function vConfig(m) {
       <div class="row"><button class="primary" id="bExp">Descargar respaldo</button><button id="bImp">Restaurar respaldo</button></div>
       <p class="ayuda" style="margin-top:10px">${S.personal.length} personas · ${S.vehiculos.length} vehículos · ${Object.values(S.liqs).filter(l => l.pdf).length} liquidaciones</p>
     </div>
+    <div class="card"><h2>Administrador</h2>
+      <p class="ayuda">La contraseña de administrador se pide para reabrir una tripulación del día que ya fue cerrada.</p>
+      <button id="bAdmin">${S.adminHash ? "Cambiar contraseña de administrador" : "Crear contraseña de administrador"}</button></div>
     <div class="card"><h2>Borrar todo</h2><button class="danger" id="bBorrar">Borrar todos los datos</button></div>`;
+  $("bAdmin").onclick = async () => {
+    if (S.adminHash) {
+      if (!(await asegurarAdmin("Ingresa la contraseña actual."))) return;
+      const n = await modalClave({ titulo: "Nueva contraseña de administrador", crear: true }); if (!n) return;
+      S.adminHash = await hashClave(n); guardar(); toast("Contraseña cambiada."); render();
+    } else if (await asegurarAdmin()) render();
+  };
   const setP = (id, k) => $(id).onchange = e => { S.precios[k] = Math.max(0, +e.target.value || 0); guardar(); toast("Precio actualizado."); };
   setP("pc", "caja"); setP("pg", "grande"); setP("pch", "chica");
   $("bExp").onclick = () => descargar(`respaldo_liquidaciones_${hoyISO()}.json`, new Blob([JSON.stringify(S, null, 1)], { type: "application/json" }));
   $("bImp").onclick = () => $("fileJson").click();
   $("bBorrar").onclick = e => {
     const b = e.target; if (!b.dataset.ok) { b.dataset.ok = 1; b.textContent = "¿Seguro? Se borrará todo. Clic otra vez"; setTimeout(() => { if (b.isConnected) { delete b.dataset.ok; b.textContent = "Borrar todos los datos"; } }, 4000); return; }
-    S = { precios: { caja: 3.8, grande: 0.6, chica: 0.5 }, preciosProd: {}, personal: [], vehiculos: [], dias: {}, liqs: {} }; guardar(); render(); toast("Datos borrados.");
+    (async () => { if (S.adminHash && !(await asegurarAdmin("Ingresa la contraseña de administrador para borrar todos los datos."))) return;
+      S = S0(); guardar(); render(); toast("Datos borrados."); })();
   };
 }
 $("fileJson").onchange = async e => {
@@ -1781,7 +1882,7 @@ $("fileJson").onchange = async e => {
   try {
     const d = JSON.parse(await f.text());
     if (!d || !Array.isArray(d.personal) || !d.liqs) throw new Error("formato");
-    S = Object.assign({ precios: { caja: 3.8, grande: 0.6, chica: 0.5 }, preciosProd: {}, personal: [], vehiculos: [], dias: {}, liqs: {} }, d);
+    S = Object.assign(S0(), d); S.tripCerrada = S.tripCerrada || {};
     guardar(); render(); toast("Respaldo restaurado.");
   } catch (err) { toast("El archivo no es un respaldo válido."); }
 };
