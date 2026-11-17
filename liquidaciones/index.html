@@ -161,6 +161,7 @@
     <h1 id="titulo">Liquidaciones</h1>
     <div class="fecha" id="topFecha">Fecha <input type="date" id="fecha"></div>
   </div>
+  <div id="avisoGuardado" class="card m-err" style="margin:14px 18px 0;padding:12px 14px" hidden></div>
   <main id="main"></main>
 </div>
 
@@ -378,7 +379,6 @@ let S = {
   tripCerrada: {},          // fecha -> {en}: tripulación del día cerrada (solo el administrador la reabre)
   adminHash: ""             // contraseña de administrador (SHA-256)
 };
-try { const g = JSON.parse(localStorage.getItem(KEY) || "null"); if (g) S = Object.assign(S, g); } catch (e) {}
 S.tripCerrada = S.tripCerrada || {};
 let LIBRO = null;
 const diaCerrado = f => !!(S.tripCerrada && S.tripCerrada[f]);
@@ -386,24 +386,74 @@ function bloqueado(f) {
   if (!diaCerrado(f)) return false;
   toast(`La tripulación del ${fmtF(f)} está cerrada. Solo un administrador puede reabrirla.`); return true;
 }
-const guardar = () => { LIBRO = null; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("No se pudo guardar en este navegador."); } };
+// ---------------------------------------------------------------------
+// Guardado en IndexedDB (espacio propio y grande). Antes se usaba localStorage, que comparte solo ~5 MB
+// con las demás páginas del mismo sitio (SEGSOL) y se llenaba: los cambios no se guardaban.
+// ---------------------------------------------------------------------
+const IDB = {
+  db: null,
+  abrir() { return new Promise((ok, no) => { try { const r = indexedDB.open("segsol_liquidaciones", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => ok(this.db = r.result); r.onerror = () => no(r.error); r.onblocked = () => no(new Error("bloqueado")); } catch (e) { no(e); } }); },
+  get(k) { return new Promise((ok, no) => { try { const q = this.db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => ok(q.result); q.onerror = () => no(q.error); } catch (e) { no(e); } }); },
+  set(k, v) { return new Promise((ok, no) => { try { const tx = this.db.transaction("kv", "readwrite"); tx.objectStore("kv").put(v, k);
+    tx.oncomplete = () => ok(); tx.onerror = () => no(tx.error); tx.onabort = () => no(tx.error || new Error("abortado")); } catch (e) { no(e); } }); }
+};
+let USA_IDB = false, ERR_GUARDADO = false, _cola = Promise.resolve();
+const canal = (() => { try { return new BroadcastChannel("segsol_liquidaciones"); } catch (e) { return null; } })();
+function avisoGuardado(err) {
+  const a = $("avisoGuardado"); if (!a) return;
+  a.hidden = !ERR_GUARDADO;
+  if (ERR_GUARDADO) a.innerHTML = `⚠ <b>No se pudieron guardar los últimos cambios</b> en este navegador (${esc(err && (err.name || err.message) || "error")}). No cierres ni recargues la página: ve a <b>Configuración → Descargar respaldo</b> para no perder la información.`;
+}
+const guardar = () => {
+  LIBRO = null; S._v = Date.now();
+  const snap = JSON.stringify(S), v = S._v;
+  _cola = _cola.then(async () => {
+    try {
+      if (USA_IDB) await IDB.set("estado", snap); else localStorage.setItem(KEY, snap);
+      if (ERR_GUARDADO) { ERR_GUARDADO = false; avisoGuardado(); }
+      if (canal) canal.postMessage(v);
+    } catch (e) { console.error(e); ERR_GUARDADO = true; avisoGuardado(e); }
+  });
+  return _cola;
+};
+async function iniciarDatos() {
+  try { await IDB.abrir(); USA_IDB = true; } catch (e) { USA_IDB = false; }
+  let g = null;
+  if (USA_IDB) { try { const t = await IDB.get("estado"); if (t) g = JSON.parse(t); } catch (e) {} }
+  let ls = null; try { ls = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
+  if (ls && (!g || (ls._v || 0) > (g._v || 0))) g = ls;               // datos de la versión anterior
+  if (g) S = Object.assign(S0(), g);
+  S.tripCerrada = S.tripCerrada || {};
+  if (USA_IDB && ls) {                                                  // pasar a IndexedDB y liberar espacio de localStorage
+    try { await IDB.set("estado", JSON.stringify(S)); localStorage.removeItem(KEY); } catch (e) {}
+  }
+}
 // Si la página está abierta en varias pestañas, todas usan los mismos datos: al volver a una pestaña o
 // cuando otra guarda, se recargan (así una pestaña antigua no borra lo que se cargó en otra).
-function recargarDatos() {
+// Trae los cambios hechos en otra pestaña. Nunca reemplaza lo que hay en pantalla por datos más antiguos.
+async function recargarDatos() {
+  if (ERR_GUARDADO) return false;
   try {
-    const g = JSON.parse(localStorage.getItem(KEY) || "null"); if (!g) return;
-    const tmp = typeof LIQ_ABIERTA !== "undefined" && LIQ_ABIERTA ? S.liqs[LIQ_ABIERTA] : null;
-    S = Object.assign(S0(), g); LIBRO = null;
+    await _cola;
+    const t = USA_IDB ? await IDB.get("estado") : localStorage.getItem(KEY); if (!t) return false;
+    const g = JSON.parse(t);
+    if ((g._v || 0) <= (S._v || 0)) return false;
+    const tmp = LIQ_ABIERTA ? S.liqs[LIQ_ABIERTA] : null;
+    S = Object.assign(S0(), g); S.tripCerrada = S.tripCerrada || {}; LIBRO = null;
     if (tmp && !S.liqs[tmp.id] && tmp.temporal) S.liqs[tmp.id] = tmp;
-  } catch (e) {}
+    return true;
+  } catch (e) { return false; }
 }
 function refrescarVista() {
   if (typeof IMP !== "undefined" && IMP) return;                      // no interrumpir una importación en curso
   render();
   if (LIQ_ABIERTA && $("panel").classList.contains("on")) { if (S.liqs[LIQ_ABIERTA]) pintarPanel(); else cerrarPanel(); }
 }
-window.addEventListener("storage", e => { if (e.key === KEY) { recargarDatos(); refrescarVista(); } });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { recargarDatos(); refrescarVista(); } });
+if (canal) canal.onmessage = async () => { if (await recargarDatos()) refrescarVista(); };
+window.addEventListener("storage", async e => { if (!USA_IDB && e.key === KEY && await recargarDatos()) refrescarVista(); });
+document.addEventListener("visibilitychange", async () => { if (!document.hidden && await recargarDatos()) refrescarVista(); });
+window.addEventListener("beforeunload", e => { if (ERR_GUARDADO) { e.preventDefault(); e.returnValue = ""; } });
 
 const $ = id => document.getElementById(id);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -1101,7 +1151,7 @@ function enlazarCobro(l, c, trip) {
     guardar(); pintarPanel(); render();
   };
   const cm = $("cComent");
-  if (cm) cm.oninput = () => { l.comentarioCierre = cm.value; clearTimeout(cm._t); cm._t = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }, 400); };
+  if (cm) cm.oninput = () => { l.comentarioCierre = cm.value; clearTimeout(cm._t); cm._t = setTimeout(() => guardar(), 400); };
   const cl = $("cCerrarLiq");
   if (cl) cl.onclick = () => {
     LIBRO = null;
@@ -1989,7 +2039,8 @@ async function descargar(nombre, blob) {
 
 document.addEventListener("keydown", e => { if (e.key === "Escape" && LIQ_ABIERTA) cerrarPanel(); });
 $("panel").addEventListener("click", e => { if (e.target.id === "panel") cerrarPanel(); });
-ir("liquidar");
+$("main").innerHTML = `<div class="card vacio">Cargando datos…</div>`;
+iniciarDatos().then(() => ir("liquidar"));
 </script>
 </body>
 </html>
