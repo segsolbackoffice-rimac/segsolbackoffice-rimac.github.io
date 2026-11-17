@@ -83,8 +83,8 @@ button.primary{background:var(--accent);color:var(--accent-ink);border-color:var
   <header>
     <div class="brand"><h1>Road<span>Map</span> BK37</h1><span class="fecha" id="fecha">—</span></div>
     <div class="drops">
-      <div class="drop" id="drop" tabindex="0"><b>1. Consolidado HR</b>Rutas, cajas y coordenadas</div>
-      <div class="drop" id="dropCj" tabindex="0"><b>2. Teléfonos</b>Hoja de ruta con maestro CLIENTES (opcional)</div>
+      <div class="drop" id="drop" tabindex="0"><b>1. Consolidado HR</b>Rutas, viajes y coordenadas</div>
+      <div class="drop" id="dropCj" tabindex="0"><b>2. Cajas</b>Hoja de Ruta Breximar (tabla dinámica)</div>
     </div>
     <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
     <input type="file" id="fileCj" accept=".xlsx,.xlsm,.xls" multiple hidden>
@@ -98,7 +98,7 @@ button.primary{background:var(--accent);color:var(--accent-ink);border-color:var
     </div>
     <div class="stats" id="stats">Sin archivo cargado</div>
   </header>
-  <div class="list" id="list"><div class="empty">Carga el Consolidado HR del día para ver las rutas y descargar cada viaje en KML.</div></div>
+  <div class="list" id="list"><div class="empty">Carga el Consolidado HR y la Hoja de Ruta Breximar del día para ver las rutas y descargar cada viaje en KML.</div></div>
   <div class="foot">
     <button class="primary" id="zipAll" disabled>Descargar todos (ZIP)</button>
     <button id="showAll" disabled>Ver todas las rutas</button>
@@ -152,7 +152,7 @@ function parseRoutes(wb){
         ruta:findCol(hdr,'Ruta'), placa:findCol(hdr,'Vehiculo','Placa'), fecha:findCol(hdr,'Fecha'),
         codigo:findCol(hdr,'Codigo','IDCli'), cliente:hdr.findIndex(x=>norm(x)==='cliente'), dir:findCol(hdr,'Direccion'),
         abre:findCol(hdr,'Abre'), cierra:findCol(hdr,'Cierra'), viaje:findCol(hdr,'Viaje'),
-        seq:findCol(hdr,'Secuencia de entrega','Sec1','Secuencia'), tel:findCol(hdr,'Telefono','CLIENTES.Column12','Column12'),
+        seq:findCol(hdr,'Secuencia de entrega','Sec1','Secuencia'), entrega:findCol(hdr,'Entrega'), tel:findCol(hdr,'Telefono','CLIENTES.Column12','Column12'),
         lat:findCol(hdr,'Latitud'), lon:findCol(hdr,'Longitud'), ciudad:findCol(hdr,'Ciudad'), llegada:findCol(hdr,'Llegada')
       };
       if (c.ruta<0 || c.lat<0 || c.lon<0) continue;
@@ -166,7 +166,7 @@ function parseRoutes(wb){
           codigo:idKey(r[c.codigo]), cliente:clean(r[c.cliente]), dir:clean(r[c.dir]),
           abre:toHHMM(r[c.abre]), cierra:toHHMM(r[c.cierra]), viaje: parseInt(r[c.viaje])||1,
           seq: parseInt(r[c.seq])||0, tel: c.tel>=0 ? clean(r[c.tel]) : '', lat:num(r[c.lat]), lon:num(r[c.lon]),
-          ciudad: c.ciudad>=0 ? clean(r[c.ciudad]) : '', llegada: c.llegada>=0 ? toHHMM(r[c.llegada]) : '', raw:r
+          ciudad: c.ciudad>=0 ? clean(r[c.ciudad]) : '', llegada: c.llegada>=0 ? toHHMM(r[c.llegada]) : '', entrega: c.entrega>=0 ? (num(r[c.entrega])||0) : 0, raw:r
         });
       }
       return {data, numericCols};
@@ -178,7 +178,7 @@ function parseRoutes(wb){
 // Tabla dinámica de cajas: Ruta | Viaje | IDCli | Cliente | ... | IDMat | Material | Cjas
 // Las celdas de Ruta/Viaje/IDCli vienen combinadas (vacías debajo) y hay filas "Total ...".
 function parseCajas(wb){
-  const out = {byTrip:new Map(), byCli:new Map(), rutas:new Set(), fecha:''};
+  const out = {byTrip:new Map(), byRuta:new Map(), byCli:new Map(), rutas:new Set(), fecha:''};
   for (const name of wb.SheetNames){
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, raw:true, defval:''});
     for (let h=0; h<Math.min(rows.length,30); h++){
@@ -195,7 +195,8 @@ function parseCajas(wb){
         if (iM>=0 && !String(r[iM]).trim()) continue;          // solo filas de material
         const cj = num(r[iJ]); if (!cli || isNaN(cj)) continue;
         const kt = `${ruta}|${viaje}|${cli}`;
-        out.byTrip.set(kt,(out.byTrip.get(kt)||0)+cj);
+        if (viaje) out.byTrip.set(kt,(out.byTrip.get(kt)||0)+cj);
+        if (ruta){ const kr=`${ruta}|${cli}`; out.byRuta.set(kr,(out.byRuta.get(kr)||0)+cj); }
         out.byCli.set(cli,(out.byCli.get(cli)||0)+cj);
         if (ruta) out.rutas.add(ruta);
       }
@@ -254,7 +255,8 @@ ${pms}
 
 // ---------- Estado y UI ----------
 let parsed=null, routes=[], selected=null, layers=[];
-let cajas={byTrip:new Map(), byCli:new Map(), rutas:new Set(), files:[]};
+let cajas={byTrip:new Map(), byRuta:new Map(), byCli:new Map(), rutas:new Set(), files:[]};
+let userPickedCjs=false;
 let phones=new Map(), extraFiles=[];
 const telOf = s => s.tel || phones.get(s.codigo) || '';
 const $ = id => document.getElementById(id);
@@ -269,10 +271,30 @@ function toast(msg){ const t=document.createElement('div'); t.className='toast';
 function saveBlob(blob, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500); }
 const kmlName = (r,v) => `${r.ruta}_${v}_${r.fecha}`;
 const tripStops = (r,v) => r.stops.filter(s=>s.viaje===v).sort((a,b)=>a.seq-b.seq);
-function cajasDe(s){
-  const t = cajas.byTrip.get(`${s.ruta}|${s.viaje}|${s.codigo}`);
-  if (t!==undefined) return t;
-  return cajas.byCli.get(s.codigo);
+function cajasDe(s){ return s.cjPivot; }
+// Reparte las cajas de la tabla dinámica entre las paradas del Consolidado.
+// 1) ruta+viaje+cliente  2) ruta+cliente  3) solo cliente (si lo cambiaron de ruta).
+// Si el cliente tiene varias paradas (p. ej. viaje 1 y 2), reparte según la columna Entrega.
+function assignCajas(){
+  if (!parsed) return;
+  parsed.data.forEach(s=>{ s.cjPivot=undefined; });
+  if (!cajas.files.length) return;
+  const split = (stops, total) => {
+    const w = stops.map(s=>s.entrega>0?s.entrega:0), W = w.reduce((a,b)=>a+b,0);
+    let rest = total;
+    stops.forEach((s,i)=>{ if (i===stops.length-1) { s.cjPivot = rest; return; }
+      const v = Math.round(total * (W ? w[i]/W : 1/stops.length)); s.cjPivot = v; rest -= v; });
+  };
+  const byRC = new Map(), byC = new Map();
+  parsed.data.forEach(s=>{
+    const kr=`${s.ruta}|${s.codigo}`; if(!byRC.has(kr)) byRC.set(kr,[]); byRC.get(kr).push(s);
+    if(!byC.has(s.codigo)) byC.set(s.codigo,[]); byC.get(s.codigo).push(s);
+  });
+  parsed.data.forEach(s=>{ const t = cajas.byTrip.get(`${s.ruta}|${s.viaje}|${s.codigo}`); if (t!==undefined) s.cjPivot=t; });
+  byRC.forEach((stops,kr)=>{ const pend = stops.filter(s=>s.cjPivot===undefined); const t = cajas.byRuta.get(kr);
+    if (pend.length && t!==undefined && pend.length===stops.length) split(pend, t); });
+  byC.forEach((stops,k)=>{ const pend = stops.filter(s=>s.cjPivot===undefined); const t = cajas.byCli.get(k);
+    if (pend.length && t!==undefined && pend.length===stops.length) split(pend, t); });
 }
 function cjsOf(s){
   const sel = $('cjsCol').value;
@@ -318,7 +340,7 @@ function addPhones(map, fname){
 function updateExtraBox(){
   const all=[...extraFiles, ...cajas.files];
   $('dropCj').classList.toggle('done', all.length>0);
-  $('dropCj').innerHTML = `<b>2. Teléfonos (${all.length})</b>${all.map(xml).join('<br>')}`;
+  $('dropCj').innerHTML = `<b>2. Cajas (${all.length})</b>${all.map(xml).join('<br>')}`;
 }
 function loadRoutes(wb, fname){
   parsed = parseRoutes(wb);
@@ -339,6 +361,7 @@ function loadRoutes(wb, fname){
 function addCajas(c, fname){
   c.byTrip.forEach((v,k)=>cajas.byTrip.set(k,v));
   c.byCli.forEach((v,k)=>cajas.byCli.set(k,v));
+  c.byRuta.forEach((v,k)=>cajas.byRuta.set(k,v));
   c.rutas.forEach(r=>cajas.rutas.add(r));
   cajas.files.push(fname);
   if (parsed && c.fecha && routes[0] && c.fecha!==routes[0].fecha) toast(`Ojo: el archivo de cajas es del ${c.fecha} y la hoja de ruta del ${routes[0].fecha}`);
@@ -346,6 +369,8 @@ function addCajas(c, fname){
 }
 
 function refresh(){
+  assignCajas();
+  if (cajas.files.length && !userPickedCjs && $('cjsCol').querySelector('option[value="cajas"]')) $('cjsCol').value='cajas';
   if (!parsed){ $('stats').textContent = cajas.files.length ? `Cajas cargadas para ${cajas.rutas.size} rutas. Falta la hoja de ruta.` : 'Sin archivo cargado'; return; }
   const usaCajas = $('cjsCol').value==='cajas';
   const falta = usaCajas ? sinCajas(parsed.data) : 0;
@@ -419,7 +444,7 @@ renderLegend([]);
 
 $('q').addEventListener('input', ()=>{ renderList(); drawMap(); });
 $('fViaje').addEventListener('change', ()=>{ renderList(); drawMap(); });
-$('cjsCol').addEventListener('change', ()=>{ if(parsed){ refresh(); } });
+$('cjsCol').addEventListener('change', ()=>{ userPickedCjs=true; if(parsed){ refresh(); } });
 $('showAll').addEventListener('click', ()=>{ selected=null; $('q').value=''; renderList(); drawMap(); });
 $('zipAll').addEventListener('click', ()=>downloadZip(visibleRoutes()));
 function wireDrop(dropId, inputId, slot){
