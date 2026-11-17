@@ -95,6 +95,7 @@ button.primary{background:var(--accent);color:var(--accent-ink);border-color:var
     <div class="row">
       <label class="small" for="cjsCol">Dato para "Cjs":</label>
       <select id="cjsCol"></select>
+      <label class="small" for="hlKml"><input type="checkbox" id="hlKml" checked> HL en el KML</label>
     </div>
     <div class="stats" id="stats">Sin archivo cargado</div>
   </header>
@@ -178,12 +179,12 @@ function parseRoutes(wb){
 // Tabla dinámica de cajas: Ruta | Viaje | IDCli | Cliente | ... | IDMat | Material | Cjas
 // Las celdas de Ruta/Viaje/IDCli vienen combinadas (vacías debajo) y hay filas "Total ...".
 function parseCajas(wb){
-  const out = {byTrip:new Map(), byRuta:new Map(), byCli:new Map(), rutas:new Set(), fecha:''};
+  const out = {byTrip:new Map(), byRuta:new Map(), byCli:new Map(), rutas:new Set(), fecha:'', lines:[]};
   for (const name of wb.SheetNames){
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, raw:true, defval:''});
     for (let h=0; h<Math.min(rows.length,30); h++){
       const hdr = rows[h].map(x=>String(x));
-      const iR=findCol(hdr,'Ruta'), iV=findCol(hdr,'Viaje'), iC=findCol(hdr,'IDCli','Codigo'), iJ=findCol(hdr,'Cjas','Cajas','Cjs'), iM=findCol(hdr,'IDMat','Material');
+      const iR=findCol(hdr,'Ruta'), iV=findCol(hdr,'Viaje'), iC=findCol(hdr,'IDCli','Codigo'), iJ=findCol(hdr,'Cjas','Cajas','Cjs'), iM=findCol(hdr,'IDMat','Material'), iH=findCol(hdr,'Suma de HL','HL'), iMat=hdr.findIndex(x=>norm(x)==='idmat'), iDesc=hdr.findIndex(x=>norm(x)==='material');
       if (iC<0 || iJ<0) continue;
       for (let k=0;k<h;k++){ const fi = rows[k].findIndex(x=>norm(x)==='fechapla'); if (fi>=0) out.fecha = toISODate(rows[k][fi+1]); }
       let ruta='', viaje='', cli='';
@@ -199,6 +200,7 @@ function parseCajas(wb){
         if (ruta){ const kr=`${ruta}|${cli}`; out.byRuta.set(kr,(out.byRuta.get(kr)||0)+cj); }
         out.byCli.set(cli,(out.byCli.get(cli)||0)+cj);
         if (ruta) out.rutas.add(ruta);
+        out.lines.push({ruta, viaje, cli, cj, mat: iMat>=0 ? idKey(r[iMat]) : '', desc: iDesc>=0 ? String(r[iDesc]).trim() : '', hl: iH>=0 ? num(r[iH]) : NaN});
       }
       return out;
     }
@@ -225,7 +227,7 @@ function parsePhones(wb){
 // ---------- KML (mismo formato que ROADMAP) ----------
 function buildKML(title, stops, cjsOf){
   const pms = stops.map(s => {
-    const name = `|${s.cliente}|${s.dir}|Cjs:${cjsOf(s)}|VH:${s.abre}-${s.cierra}|Tel:${telOf(s)}`;
+    const name = `|${s.cliente}|${s.dir}|Cjs:${cjsOf(s)}${hlOn()?`|HL:${fmtHL(s.hlPivot)}`:''}|VH:${s.abre}-${s.cierra}|Tel:${telOf(s)}`;
     return `\t\t<Placemark>\n\t\t\t<name>${xml(name)}</name>\n\t\t\t<styleUrl>#placemark-red</styleUrl>\n\t\t\t<Point>\n\t\t\t\t<coordinates>${s.lon},${s.lat}</coordinates>\n\t\t\t</Point>\n\t\t</Placemark>`;
   }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -255,7 +257,7 @@ ${pms}
 
 // ---------- Estado y UI ----------
 let parsed=null, routes=[], selected=null, layers=[];
-let cajas={byTrip:new Map(), byRuta:new Map(), byCli:new Map(), rutas:new Set(), files:[]};
+let cajas={byTrip:new Map(), byRuta:new Map(), byCli:new Map(), rutas:new Set(), files:[], lines:[]};
 let userPickedCjs=false;
 let phones=new Map(), extraFiles=[];
 const telOf = s => s.tel || phones.get(s.codigo) || '';
@@ -275,27 +277,75 @@ function cajasDe(s){ return s.cjPivot; }
 // Reparte las cajas de la tabla dinámica entre las paradas del Consolidado.
 // 1) ruta+viaje+cliente  2) ruta+cliente  3) solo cliente (si lo cambiaron de ruta).
 // Si el cliente tiene varias paradas (p. ej. viaje 1 y 2), reparte según la columna Entrega.
+// ---------- HL ----------
+// Factores HL por caja de la Calculadora de HL (mismo sitio en GitHub: ../calculadora-hl/)
+let FAC = {};
+try{ const o = JSON.parse(localStorage.getItem('hl_factores_v1')||'{}'); for (const k in o) if (o[k] && o[k].f>0) FAC[k]=o[k].f; }catch(e){}
+(async ()=>{ try{ const r = await fetch('../calculadora-hl/factores.json',{cache:'no-store'}); if (r.ok){ const o = await r.json(); const it=o.items||o;
+  for (const k in it) if (it[k] && it[k].f>0 && !(k in FAC)) FAC[k]=it[k].f; if (parsed) refresh(); } }catch(e){} })();
+// Estima HL por caja desde la descripción: 355ML ... 6P  ->  355*6/100000
+function hlFromDesc(desc){
+  const s = String(desc||'').toUpperCase();
+  const v = s.match(/(\d+(?:[.,]\d+)?)\s*(ML|LTS?|L)\b/); if (!v) return 0;
+  let ml = parseFloat(v[1].replace(',','.')) * (v[2].startsWith('L') ? 1000 : 1);
+  if (ml > 20000) return 0;
+  const u = s.slice(v.index + v[0].length).match(/(\d+)\s*(?:P\b|PX|X\s*\d|X\b|\s*CP)/); if (!u) return 0;
+  return ml * parseInt(u[1]) / 100000;
+}
+// HL por línea: el de la tabla dinámica; si viene vacío, factor del mismo producto en el archivo,
+// luego factores de la Calculadora de HL y por último estimado por la descripción.
+function computeHL(){
+  const fArch = new Map();
+  cajas.lines.forEach(l=>{ if (l.hl>0 && l.cj>0 && l.mat){ const a=fArch.get(l.mat)||[0,0]; a[0]+=l.hl; a[1]+=l.cj; fArch.set(l.mat,a); } });
+  const H = {byTrip:new Map(), byRuta:new Map(), byCli:new Map(), est:0, sin:0};
+  const add = (m,k,v)=>m.set(k,(m.get(k)||0)+v);
+  cajas.lines.forEach(l=>{
+    let hl = l.hl;
+    if (isNaN(hl) && l.cj>0){
+      const fa = fArch.get(l.mat);
+      const f = fa ? fa[0]/fa[1] : (FAC[l.mat] || hlFromDesc(l.desc));
+      hl = f * l.cj; if (f>0) H.est++; else H.sin++;
+    }
+    hl = hl || 0;
+    if (l.viaje) add(H.byTrip, `${l.ruta}|${l.viaje}|${l.cli}`, hl);
+    if (l.ruta) add(H.byRuta, `${l.ruta}|${l.cli}`, hl);
+    add(H.byCli, l.cli, hl);
+  });
+  return H;
+}
+let hlInfo = {est:0, sin:0};
+
+// Reparte cajas y HL de la tabla dinámica entre las paradas del Consolidado.
+// 1) ruta+viaje+cliente  2) ruta+cliente  3) solo cliente (si lo cambiaron de ruta).
+// Si el cliente tiene varias paradas (p. ej. viaje 1 y 2), reparte según la columna Entrega.
 function assignCajas(){
   if (!parsed) return;
-  parsed.data.forEach(s=>{ s.cjPivot=undefined; });
+  parsed.data.forEach(s=>{ s.cjPivot=undefined; s.hlPivot=undefined; });
   if (!cajas.files.length) return;
-  const split = (stops, total) => {
-    const w = stops.map(s=>s.entrega>0?s.entrega:0), W = w.reduce((a,b)=>a+b,0);
-    let rest = total;
-    stops.forEach((s,i)=>{ if (i===stops.length-1) { s.cjPivot = rest; return; }
-      const v = Math.round(total * (W ? w[i]/W : 1/stops.length)); s.cjPivot = v; rest -= v; });
-  };
+  const H = computeHL(); hlInfo = H;
   const byRC = new Map(), byC = new Map();
   parsed.data.forEach(s=>{
     const kr=`${s.ruta}|${s.codigo}`; if(!byRC.has(kr)) byRC.set(kr,[]); byRC.get(kr).push(s);
     if(!byC.has(s.codigo)) byC.set(s.codigo,[]); byC.get(s.codigo).push(s);
   });
-  parsed.data.forEach(s=>{ const t = cajas.byTrip.get(`${s.ruta}|${s.viaje}|${s.codigo}`); if (t!==undefined) s.cjPivot=t; });
-  byRC.forEach((stops,kr)=>{ const pend = stops.filter(s=>s.cjPivot===undefined); const t = cajas.byRuta.get(kr);
-    if (pend.length && t!==undefined && pend.length===stops.length) split(pend, t); });
-  byC.forEach((stops,k)=>{ const pend = stops.filter(s=>s.cjPivot===undefined); const t = cajas.byCli.get(k);
-    if (pend.length && t!==undefined && pend.length===stops.length) split(pend, t); });
+  const run = (maps, field, round) => {
+    const split = (stops, total) => {
+      const w = stops.map(s=>s.entrega>0?s.entrega:0), W = w.reduce((a,b)=>a+b,0);
+      let rest = total;
+      stops.forEach((s,i)=>{ if (i===stops.length-1) { s[field] = round(rest); return; }
+        const v = round(total * (W ? w[i]/W : 1/stops.length)); s[field] = v; rest -= v; });
+    };
+    parsed.data.forEach(s=>{ const t = maps.byTrip.get(`${s.ruta}|${s.viaje}|${s.codigo}`); if (t!==undefined) s[field]=round(t); });
+    byRC.forEach((stops,kr)=>{ const pend = stops.filter(s=>s[field]===undefined); const t = maps.byRuta.get(kr);
+      if (pend.length && t!==undefined && pend.length===stops.length) split(pend, t); });
+    byC.forEach((stops,k)=>{ const pend = stops.filter(s=>s[field]===undefined); const t = maps.byCli.get(k);
+      if (pend.length && t!==undefined && pend.length===stops.length) split(pend, t); });
+  };
+  run(cajas, 'cjPivot', Math.round);
+  run(H, 'hlPivot', v=>Math.round(v*100)/100);
 }
+const fmtHL = v => v===undefined ? '' : (Math.round(v*100)/100).toFixed(2);
+const hlOn = () => cajas.files.length>0 && $('hlKml').checked;
 function cjsOf(s){
   const sel = $('cjsCol').value;
   if (sel==='cajas'){ const c = cajasDe(s); return c===undefined ? '' : fmtNum(c); }
@@ -362,6 +412,7 @@ function addCajas(c, fname){
   c.byTrip.forEach((v,k)=>cajas.byTrip.set(k,v));
   c.byCli.forEach((v,k)=>cajas.byCli.set(k,v));
   c.byRuta.forEach((v,k)=>cajas.byRuta.set(k,v));
+  cajas.lines.push(...c.lines);
   c.rutas.forEach(r=>cajas.rutas.add(r));
   cajas.files.push(fname);
   if (parsed && c.fecha && routes[0] && c.fecha!==routes[0].fecha) toast(`Ojo: el archivo de cajas es del ${c.fecha} y la hoja de ruta del ${routes[0].fecha}`);
@@ -377,6 +428,7 @@ function refresh(){
   $('stats').innerHTML = `${routes.length} rutas · ${parsed.data.length} clientes · ${routes.reduce((t,r)=>t+r.viajes.length,0)} viajes`
     + (parsed.data.some(x=>!telOf(x)) ? ` · <span class="warn">${parsed.data.filter(x=>!telOf(x)).length} sin teléfono</span>` : '')
     + (usaCajas ? (cajas.files.length ? (falta ? ` · <span class="warn">${falta} clientes sin cajas</span>` : ' · cajas completas') : ' · <span class="warn">carga la tabla de cajas</span>') : '');
+    + (cajas.files.length ? ` · ${parsed.data.reduce((t,x)=>t+(x.hlPivot||0),0).toFixed(1)} HL` + (hlInfo.est||hlInfo.sin ? ` <span class="warn" title="Productos sin HL en la tabla dinámica: ${hlInfo.est} completados con factor, ${hlInfo.sin} sin factor (quedan en 0)">(${hlInfo.est+hlInfo.sin} productos sin HL en la tabla: ${hlInfo.est} completados${hlInfo.sin?`, ${hlInfo.sin} en 0`:''})</span>` : '') : '');
   $('zipAll').disabled=false; $('showAll').disabled=false;
   renderList(); drawMap();
 }
@@ -390,7 +442,7 @@ function renderList(){
   if (!list.length){ $('list').innerHTML = `<div class="empty">${routes.length?'Ninguna ruta coincide con la búsqueda.':'Carga la hoja de ruta del día.'}</div>`; return; }
   $('list').innerHTML = list.map(r => {
     const isSel = selected===r.ruta;
-    const cnt = r.viajes.map(v=>{ const st=tripStops(r,v); const cj=st.reduce((t,s)=>t+(num(cjsOf(s))||0),0); return `V${v}: ${st.length}${showCj?` (${fmtNum(cj)} cjs)`:''}`; }).join(' · ');
+    const cnt = r.viajes.map(v=>{ const st=tripStops(r,v); const cj=st.reduce((t,s)=>t+(num(cjsOf(s))||0),0); const hl=st.reduce((t,s)=>t+(s.hlPivot||0),0); return `V${v}: ${st.length}${showCj?` (${fmtNum(cj)} cjs${cajas.files.length?` · ${hl.toFixed(1)} HL`:''})`:''}`; }).join(' · ');
     const falta = usaCajas ? sinCajas(r.stops) : 0;
     return `<div class="route${isSel?' sel':''}" data-r="${xml(r.ruta)}">
       <div class="swatch" style="background:${r.color}"></div>
@@ -432,7 +484,7 @@ function drawMap(fit=true){
         const cj = cjsOf(s);
         layers.push(L.marker([s.lat,s.lon],{icon}).bindPopup(`<div class="pop"><b>${xml(s.cliente)}</b><br>${xml(s.dir)}<br>
           <span class="k">Ruta</span> ${xml(r.ruta)} · ${xml(r.placa)} · <span class="k">Viaje</span> ${v} · <span class="k">Sec.</span> ${s.seq}<br>
-          <span class="k">Código</span> ${xml(s.codigo)} · <span class="k">Cjs</span> ${cj===''?'<i>sin dato</i>':xml(cj)}<br>
+          <span class="k">Código</span> ${xml(s.codigo)} · <span class="k">Cjs</span> ${cj===''?'<i>sin dato</i>':xml(cj)}${s.hlPivot!==undefined?` · <span class="k">HL</span> ${fmtHL(s.hlPivot)}`:''}<br>
           <span class="k">VH</span> ${s.abre}-${s.cierra}${s.llegada?` · <span class="k">Llegada</span> ${s.llegada}`:''}<br>
           <span class="k">Tel</span> ${xml(telOf(s))}${s.ciudad?` · ${xml(s.ciudad)}`:''}</div>`).addTo(map));
       });
@@ -445,6 +497,8 @@ renderLegend([]);
 $('q').addEventListener('input', ()=>{ renderList(); drawMap(); });
 $('fViaje').addEventListener('change', ()=>{ renderList(); drawMap(); });
 $('cjsCol').addEventListener('change', ()=>{ userPickedCjs=true; if(parsed){ refresh(); } });
+$('hlKml').addEventListener('change', ()=>{ try{ localStorage.setItem('roadmap_hlkml', $('hlKml').checked?'1':'0'); }catch(e){} });
+try{ if (localStorage.getItem('roadmap_hlkml')==='0') $('hlKml').checked=false; }catch(e){}
 $('showAll').addEventListener('click', ()=>{ selected=null; $('q').value=''; renderList(); drawMap(); });
 $('zipAll').addEventListener('click', ()=>downloadZip(visibleRoutes()));
 function wireDrop(dropId, inputId, slot){
