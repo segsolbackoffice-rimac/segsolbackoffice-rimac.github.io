@@ -132,6 +132,11 @@
   .imp-b .vh{background:var(--head);padding:8px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .imp-b .vh input{padding:4px 6px;font-weight:700;color:#2b3a75}
   .imp-b table{table-layout:fixed} .imp-b td{padding:4px 6px} .imp-b select,.imp-b td input{font-size:12px;padding:4px 6px;width:100%}
+  .mini{font-size:11.5px;padding:3px 9px;border-radius:7px}
+  .vrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:4px 6px;border-radius:6px;cursor:pointer}
+  .vrow:hover{background:#efeefe}
+  .veh .vf{gap:8px}
+  #elige{z-index:50;padding-top:12vh}
   input.precio{width:80px;text-align:right;padding:4px 6px}
 </style>
 </head>
@@ -160,6 +165,7 @@
 </div>
 
 <div class="panel" id="panel"><div class="hoja" id="hoja"></div></div>
+<div class="panel" id="elige"></div>
 <div class="toast" id="toast"></div>
 <input type="file" id="filePdf" accept="application/pdf,.pdf" multiple hidden>
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
@@ -372,7 +378,11 @@ let FORM = { tipo: "pago", modo: "persona" };   // formulario de cobro
 const persona = id => S.personal.find(p => p.id === id);
 const vehiculo = id => S.vehiculos.find(v => v.id === id);
 const tripDia = (fecha, vehId) => ((S.dias[fecha] || {})[vehId] || []).map(t => ({ ...t, p: persona(t.personaId) })).filter(t => t.p);
-const liqDe = (fecha, vehId) => Object.values(S.liqs).find(l => l.fecha === fecha && l.vehId === vehId);
+const nv = l => l.nviaje || 1;
+const liqsDe = (fecha, vehId) => Object.values(S.liqs).filter(l => l.fecha === fecha && l.vehId === vehId).sort((a, b) => nv(a) - nv(b));
+const liqDe = (fecha, vehId, n = 1) => liqsDe(fecha, vehId).find(l => nv(l) === n);
+// "· Viaje 2" solo cuando el vehículo tiene más de una liquidación ese día
+const etqViaje = l => liqsDe(l.fecha, l.vehId).filter(x => x.pdf).length > 1 || nv(l) > 1 ? ` · Viaje ${nv(l)}` : "";
 const placaCoincide = (a, b) => { const x = norm(a), y = norm(b); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
 
 // tripulación de una liquidación: congelada al cerrar; mientras está abierta, la del día
@@ -534,22 +544,22 @@ async function leerArchivo(f) {
 }
 
 // asigna un PDF leído a la liquidación (fecha, vehículo). Devuelve [clase, mensaje]
-function asignarPdf(pdf, fecha, vehId) {
+function asignarPdf(pdf, fecha, vehId, n = 1) {
   const v = vehiculo(vehId);
-  const otra = Object.values(S.liqs).find(l => l.pdf && l.pdf.base === pdf.base && !(l.fecha === fecha && l.vehId === vehId));
+  const otra = Object.values(S.liqs).find(l => l.pdf && l.pdf.base === pdf.base && !(l.fecha === fecha && l.vehId === vehId && nv(l) === n));
   if (otra) {
     const vo = vehiculo(otra.vehId);
-    if (otra.pdf.rep >= pdf.rep) return ["m-err", `${pdf.archivo}: el viaje ${pdf.base} ya está liquidado en ${vo ? vo.placa : "otro vehículo"} (${fmtF(otra.fecha)}).`];
+    if (otra.pdf.rep >= pdf.rep) return ["m-err", `${pdf.archivo}: el viaje ${pdf.base} ya está liquidado en ${vo ? vo.placa : "otro vehículo"} (${fmtF(otra.fecha)}${etqViaje(otra)}).`];
     if (otra.estado === "cerrada") return ["m-err", `${pdf.archivo}: es el reproceso R${pdf.rep} del viaje ${pdf.base}, pero esa liquidación (${fmtF(otra.fecha)}) ya está cerrada. Reábrela primero.`];
     delete S.liqs[otra.id];
   }
-  let l = liqDe(fecha, vehId);
-  if (l && l.estado === "cerrada") return ["m-err", `${pdf.archivo}: la liquidación de ${v.placa} ya está cerrada. Reábrela para cambiar el PDF.`];
+  let l = liqDe(fecha, vehId, n);
+  if (l && l.estado === "cerrada") return ["m-err", `${pdf.archivo}: la liquidación de ${v.placa} (Viaje ${n}) ya está cerrada. Reábrela para cambiar el PDF.`];
   if (l && l.pdf && l.pdf.base === pdf.base && l.pdf.rep > pdf.rep) return ["m-warn", `${pdf.archivo}: ya está cargado el reproceso R${l.pdf.rep}, que es más reciente. Omitido.`];
-  if (!l) { l = { id: uid(), creado: new Date().toISOString(), fecha, vehId, cobros: [], estado: "abierta", incluirProductos: false, preciosProd: {} }; S.liqs[l.id] = l; }
-  l.pdf = pdf;
+  if (!l) { l = { id: uid(), creado: new Date().toISOString(), fecha, vehId, nviaje: n, cobros: [], estado: "abierta", incluirProductos: false, preciosProd: {} }; S.liqs[l.id] = l; }
+  l.pdf = pdf; delete l.temporal;
   const aviso = placaCoincide(pdf.enc.placa, v.placa) ? "" : ` ⚠ La placa del PDF (${pdf.enc.placa}) no coincide con ${v.placa}.`;
-  return [aviso ? "m-warn" : "m-ok", `${pdf.archivo}: viaje ${pdf.enc.viaje} cargado en ${v.placa}${v.bk ? " — " + v.bk : ""}.${aviso}`];
+  return [aviso ? "m-warn" : "m-ok", `${pdf.archivo}: viaje ${pdf.enc.viaje} cargado en ${v.placa}${v.bk ? " — " + v.bk : ""} como Viaje ${n}.${aviso}`];
 }
 
 // =====================================================================
@@ -561,11 +571,11 @@ let EXP = { desde: null, hasta: null };
 function vLiquidar(m) {
   const delDia = vehiculosDelDia(FECHA);
   const vehs = delDia.filter(v => {
-    const l = liqDe(FECHA, v.id);
-    const est = !l || !l.pdf ? "p" : l.estado === "cerrada" ? "c" : "e";
+    const ls = liqsDe(FECHA, v.id).filter(l => l.pdf);
+    const est = !ls.length ? "p" : ls.every(l => l.estado === "cerrada") ? "c" : "e";
     if (LF.estado && LF.estado !== est) return false;
     if (!LF.q) return true;
-    const hay = sinTilde([v.placa, v.bk, l && l.pdf ? l.pdf.enc.viaje + " " + l.pdf.enc.placa : "",
+    const hay = sinTilde([v.placa, v.bk, ...ls.map(l => l.pdf.enc.viaje + " " + l.pdf.enc.placa),
       ...tripDia(FECHA, v.id).map(t => t.p.nombre + " " + (t.p.dni || ""))].join(" "));
     return sinTilde(LF.q).split(/\s+/).filter(Boolean).every(w => hay.includes(w) || norm(hay).includes(norm(w)));
   });
@@ -630,27 +640,44 @@ function vLiquidar(m) {
     exportarReporte(ls, d, h);
   };
   const dg = $("dropGeneral");
-  dg.onclick = () => { $("filePdf").dataset.veh = ""; $("filePdf").click(); };
+  dg.onclick = () => { $("filePdf").dataset.veh = ""; $("filePdf").dataset.n = ""; $("filePdf").click(); };
   dg.ondragover = e => { e.preventDefault(); dg.classList.add("over"); };
   dg.ondragleave = () => dg.classList.remove("over");
   dg.ondrop = e => { e.preventDefault(); dg.classList.remove("over"); cargarPdfs([...e.dataTransfer.files], null); };
 
   m.querySelectorAll(".veh").forEach(c => {
-    c.onclick = () => abrirLiq(FECHA, c.dataset.veh);
+    c.onclick = e => {
+      const ab = e.target.closest("[data-abre]"), nu = e.target.closest("[data-nuevo]");
+      if (nu) { const [vid, n] = nu.dataset.nuevo.split("|"); return abrirLiq(FECHA, vid, +n); }
+      if (ab) return abrirLiqId(ab.dataset.abre);
+      const ls = liqsDe(FECHA, c.dataset.veh).filter(l => l.pdf);
+      const abierta = ls.find(l => l.estado !== "cerrada");
+      abrirLiq(FECHA, c.dataset.veh, abierta ? nv(abierta) : ls.length ? nv(ls[0]) : 1);
+    };
     c.ondragover = e => { e.preventDefault(); c.classList.add("over"); };
     c.ondragleave = () => c.classList.remove("over");
     c.ondrop = e => { e.preventDefault(); c.classList.remove("over"); cargarPdfs([...e.dataTransfer.files].slice(0, 1), c.dataset.veh, true); };
   });
 }
 
+function resumenLiq(l) {
+  const c = calc(l);
+  return c.aCobrar ? `A cobrar <b class="neg">${soles(c.aCobrar, false)}</b>${c.pendiente > 0 ? ` · falta <b>${soles(c.pendiente, false)}</b>` : ""}`
+    : c.aFavor ? `Sobrante a favor <b class="pos">${soles(c.aFavor, false)}</b>` : `Neto <b>${soles(0, false)}</b> · sin cobro`;
+}
+function estadoVeh(ls) {
+  if (!ls.length) return estadoTag(null);
+  return ls.every(l => l.estado === "cerrada") ? estadoTag(ls[0]) : estadoTag(ls.find(l => l.estado !== "cerrada"));
+}
 function tarjetaVeh(v) {
-  const t = tripDia(FECHA, v.id), l = liqDe(FECHA, v.id), c = l ? calc(l) : null;
+  const t = tripDia(FECHA, v.id), ls = liqsDe(FECHA, v.id).filter(l => l.pdf);
+  const sig = Math.max(0, ...ls.map(nv)) + 1;
   let pie = `<span class="vacio" style="padding:0">Sin PDF — clic para liquidar</span>`;
-  if (l && l.pdf) pie = c.aCobrar ? `<span>A cobrar <b class="neg">${soles(c.aCobrar, false)}</b>${c.pendiente > 0 ? ` · falta <b>${soles(c.pendiente, false)}</b>` : ""}</span>`
-    : c.aFavor ? `<span>Sobrante a favor <b class="pos">${soles(c.aFavor, false)}</b></span>`
-    : `<span>Neto <b>${soles(0, false)}</b> · sin cobro</span>`;
+  if (ls.length === 1 && nv(ls[0]) === 1) pie = `<span>${resumenLiq(ls[0])}</span><button class="mini" data-nuevo="${v.id}|${sig}" title="Este vehículo hizo otro viaje">+ Viaje ${sig}</button>`;
+  else if (ls.length) pie = `<div style="width:100%">${ls.map(l => `<div class="vrow" data-abre="${l.id}"><b>Viaje ${nv(l)}</b> ${estadoTag(l)} <span>${resumenLiq(l)}</span></div>`).join("")}
+      <div style="text-align:right;margin-top:4px"><button class="mini" data-nuevo="${v.id}|${sig}">+ Viaje ${sig}</button></div></div>`;
   return `<div class="veh" data-veh="${v.id}">
-    <div class="vh"><span>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</span>${estadoTag(l)}</div>
+    <div class="vh"><span>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</span>${ls.length > 1 ? `<span class="tag azul">${ls.length} viajes</span>` : ""}${estadoVeh(ls)}</div>
     ${t.length ? `<table><thead><tr><th></th><th class="num">Función</th></tr></thead><tbody>
       ${t.map(x => `<tr><td>${esc(x.p.nombre)}</td><td class="num">${esc(x.funcion)}</td></tr>`).join("")}</tbody></table>`
       : `<div class="sin">Sin tripulación asignada</div>`}
@@ -658,13 +685,31 @@ function tarjetaVeh(v) {
 }
 
 $("filePdf").onchange = e => {
-  const veh = e.target.dataset.veh || null;
-  cargarPdfs([...e.target.files], veh, !!veh);
+  const veh = e.target.dataset.veh || null, n = +e.target.dataset.n || undefined;
+  e.target.dataset.n = "";
+  cargarPdfs([...e.target.files], veh, !!veh, n);
   e.target.value = "";
 };
 
-async function cargarPdfs(files, vehId, abrir) {
-  MSGS = [];
+// Pregunta si el PDF es Viaje 1, Viaje 2… (cuando el vehículo ya tiene otra liquidación ese día)
+function elegirViaje(v, pdf, fecha) {
+  const ls = liqsDe(fecha, v.id);
+  const sig = Math.max(0, ...ls.map(nv)) + 1;
+  return new Promise(res => {
+    const el = $("elige");
+    el.innerHTML = `<div class="hoja" style="max-width:560px"><h2 style="color:var(--brand)">¿Qué viaje es?</h2>
+      <p>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""} ya tiene liquidación el ${fmtF(fecha)}. El PDF <b>${esc(pdf.archivo)}</b> (Nº viaje <b>${esc(pdf.enc.viaje)}</b>) corresponde a:</p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${ls.map(l => `<button data-n="${nv(l)}" ${l.estado === "cerrada" ? "disabled" : ""} style="text-align:left">Viaje ${nv(l)} — ${l.pdf ? `reemplazar el PDF actual (${esc(l.pdf.enc.viaje)})` : "sin PDF"}${l.estado === "cerrada" ? " · cerrada" : ""}</button>`).join("")}
+        <button class="primary" data-n="${sig}" style="text-align:left">➕ Viaje ${sig} (nuevo)</button>
+        <button data-n="">Cancelar</button>
+      </div></div>`;
+    el.classList.add("on");
+    el.querySelectorAll("[data-n]").forEach(b => b.onclick = () => { el.classList.remove("on"); res(b.dataset.n ? +b.dataset.n : null); });
+  });
+}
+async function cargarPdfs(files, vehId, abrir, nFijo) {
+  MSGS = []; let ultimo = null;
   for (const f of files) {
     if (!/\.pdf$/i.test(f.name)) { MSGS.push(["m-warn", `${f.name}: no es PDF, omitido.`]); continue; }
     try {
@@ -675,11 +720,20 @@ async function cargarPdfs(files, vehId, abrir) {
         if (!v) { MSGS.push(["m-err", `${f.name}: la placa ${pdf.enc.placa} no está registrada en Vehículos.`]); continue; }
         destino = v.id;
       }
-      MSGS.push(asignarPdf(pdf, FECHA, destino));
+      let n = nFijo;
+      if (!n) {
+        const ls = liqsDe(FECHA, destino), conPdf = ls.filter(l => l.pdf);
+        const mismo = conPdf.find(l => l.pdf.base === pdf.base);          // reproceso del mismo viaje
+        if (mismo) n = nv(mismo);
+        else if (!conPdf.length) n = ls.length ? nv(ls[0]) : 1;
+        else { n = await elegirViaje(vehiculo(destino), pdf, FECHA); if (!n) { MSGS.push(["m-warn", `${f.name}: carga cancelada.`]); continue; } }
+      }
+      MSGS.push(asignarPdf(pdf, FECHA, destino, n));
+      ultimo = liqDe(FECHA, destino, n);
     } catch (err) { console.error(err); MSGS.push(["m-err", `${f.name}: no se pudo leer (${err.message || err}).`]); }
   }
   guardar();
-  if (abrir && vehId) { const l = liqDe(FECHA, vehId); if (l) { LIQ_ABIERTA = l.id; } toastMsgs(); render(); pintarPanel(); }
+  if (abrir && vehId) { const l = ultimo || liqDe(FECHA, vehId, nFijo || 1); if (l) { LIQ_ABIERTA = l.id; } toastMsgs(); render(); pintarPanel(); }
   else render();
 }
 function toastMsgs() { const e = MSGS.find(m => m[0] !== "m-ok"); if (e) toast(e[1]); }
@@ -687,13 +741,18 @@ function toastMsgs() { const e = MSGS.find(m => m[0] !== "m-ok"); if (e) toast(e
 // =====================================================================
 // Panel de liquidación
 // =====================================================================
-function abrirLiq(fecha, vehId) {
-  let l = liqDe(fecha, vehId);
-  if (!l) { l = { id: uid(), creado: new Date().toISOString(), fecha, vehId, cobros: [], estado: "abierta", incluirProductos: false, preciosProd: {}, pdf: null, temporal: true }; S.liqs[l.id] = l; }
+function limpiarTemporal(exceptoId) {
+  const p = S.liqs[LIQ_ABIERTA];
+  if (p && p.temporal && !p.pdf && p.id !== exceptoId) delete S.liqs[p.id];
+}
+function abrirLiq(fecha, vehId, n = 1) {
+  let l = liqDe(fecha, vehId, n);
+  limpiarTemporal(l && l.id);
+  if (!l) { l = { id: uid(), creado: new Date().toISOString(), fecha, vehId, nviaje: n, cobros: [], estado: "abierta", incluirProductos: false, preciosProd: {}, pdf: null, temporal: true }; S.liqs[l.id] = l; }
   LIQ_ABIERTA = l.id; FORM = { tipo: "pago", modo: "persona" };
   pintarPanel();
 }
-function abrirLiqId(id) { LIQ_ABIERTA = id; FORM = { tipo: "pago", modo: "persona" }; pintarPanel(); }
+function abrirLiqId(id) { limpiarTemporal(id); LIQ_ABIERTA = id; FORM = { tipo: "pago", modo: "persona" }; pintarPanel(); }
 function cerrarPanel() {
   const l = S.liqs[LIQ_ABIERTA];
   if (l && l.temporal && !l.pdf) delete S.liqs[l.id];
@@ -733,8 +792,12 @@ function pintarPanel() {
   const secs = new Set((l.pdf ? l.pdf.lineas : []).map(x => x.seccion));
   $("panel").classList.add("on");
   $("hoja").innerHTML = `
-    <div class="ptop"><h2>Detalle de liquidación — ${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</h2>
+    <div class="ptop"><h2>Detalle de liquidación — ${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""} — Viaje ${nv(l)}</h2>
       <div class="row">${estadoTag(l)} <button id="pCerrar">✕ Cerrar</button></div></div>
+    <div class="tabs"><div class="seg">${(() => { const ls = liqsDe(l.fecha, l.vehId).filter(x => x.pdf || x.id === l.id); const sig = Math.max(0, ...liqsDe(l.fecha, l.vehId).map(nv)) + 1;
+      return ls.map(x => `<button data-tabv="${nv(x)}" class="${x.id === l.id ? "on" : ""}">Viaje ${nv(x)}${x.pdf ? ` · ${esc(x.pdf.enc.viaje)}` : ""}</button>`).join("")
+        + (l.pdf ? `<button data-tabv="${sig}">➕ Viaje ${sig}</button>` : ""); })()}</div>
+      <span class="ayuda" style="align-self:center;margin:0 0 0 8px">Si el vehículo hizo 2 viajes, cada viaje tiene su propia liquidación.</span></div>
     <div class="card" style="padding:12px 14px">
       <div class="row" style="align-items:center"><b>Tripulación (${fmtF(l.fecha)}):</b>
         ${trip.length ? trip.map(t => `<span class="chip" style="cursor:default">${esc(t.nombre)} <small>${esc(t.funcion)}${t.dni ? " · " + esc(t.dni) : ""}</small></span>`).join("")
@@ -769,16 +832,17 @@ function pintarPanel() {
     ${seccionCobro(l, c, trip)}`}`;
 
   $("pCerrar").onclick = cerrarPanel;
+  $("hoja").querySelectorAll("[data-tabv]").forEach(b => b.onclick = () => abrirLiq(l.fecha, l.vehId, +b.dataset.tabv));
   const pd = $("pDrop");
   if (pd) {
     pd.onclick = () => { $("filePdf").dataset.veh = l.vehId; $("filePdf").click(); };
     pd.ondragover = ev => { ev.preventDefault(); pd.classList.add("over"); };
     pd.ondragleave = () => pd.classList.remove("over");
-    pd.ondrop = ev => { ev.preventDefault(); pd.classList.remove("over"); FECHA_PDF(l); cargarPdfs([...ev.dataTransfer.files].slice(0, 1), l.vehId, true); };
-    pd.onclick = () => { FECHA_PDF(l); $("filePdf").dataset.veh = l.vehId; $("filePdf").click(); };
+    pd.ondrop = ev => { ev.preventDefault(); pd.classList.remove("over"); FECHA_PDF(l); cargarPdfs([...ev.dataTransfer.files].slice(0, 1), l.vehId, true, nv(l)); };
+    pd.onclick = () => { FECHA_PDF(l); $("filePdf").dataset.veh = l.vehId; $("filePdf").dataset.n = nv(l); $("filePdf").click(); };
   }
   const pc = $("pCambiar");
-  if (pc) pc.onclick = ev => { ev.preventDefault(); FECHA_PDF(l); $("filePdf").dataset.veh = l.vehId; $("filePdf").click(); };
+  if (pc) pc.onclick = ev => { ev.preventDefault(); FECHA_PDF(l); $("filePdf").dataset.veh = l.vehId; $("filePdf").dataset.n = nv(l); $("filePdf").click(); };
   const chk = $("chkProd");
   if (chk) chk.onchange = () => { l.incluirProductos = chk.checked; guardar(); pintarPanel(); render(); };
   $("hoja").querySelectorAll("input.precio").forEach(inp => inp.onchange = () => {
@@ -1060,7 +1124,7 @@ function vReporte(m) {
     <div class="card scroll"><h2>Detalle por liquidación</h2>
       ${ls.length ? `<table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Nº viaje</th><th>Estado</th><th class="num">Neto</th><th class="num">A favor</th><th class="num">A cobrar</th><th class="num">Pagado</th><th class="num">Descuento</th><th></th></tr></thead><tbody>
       ${ls.map(l => { const c = calc(l), v = vehiculo(l.vehId) || {}; return `<tr>
-        <td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}</td><td>${esc(l.pdf.enc.viaje)}</td><td>${estadoTag(l)}</td>
+        <td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}${etqViaje(l) ? `<br><span class="tag azul">${etqViaje(l).slice(3)}</span>` : ""}</td><td>${esc(l.pdf.enc.viaje)}</td><td>${estadoTag(l)}</td>
         <td class="num ${cls(c.neto)}">${soles(c.neto)}</td><td class="num pos">${c.aFavor ? soles(c.aFavor, false) : "—"}</td><td class="num">${soles(c.aCobrar, false)}</td><td class="num pos">${soles(c.pagado, false)}</td><td class="num neg">${soles(c.descontado, false)}</td>
         <td><button data-ver="${l.id}">Ver detalle</button> <button data-desg="${l.id}">▾</button></td></tr>
         <tr class="det" id="d_${l.id}"><td colspan="10">${(l.cobros || []).length ? (l.cobros.map(x => `<div>${x.tipo === "pago" ? "💵 Pago" : "📉 Descuento"} · ${esc(x.nombre)}${x.dni ? " (" + esc(x.dni) + ")" : ""} · ${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") : (x.modo === "tripulacion" ? "partes iguales" : "")} · <b>${soles(x.monto, false)}</b></div>`).join("")) : `<span class="vacio">Sin pagos ni descuentos.</span>`}
@@ -1136,7 +1200,7 @@ function vTrazaLineas(m) {
     </div>
     <div class="card scroll"><h2>Faltantes y sobrantes</h2>
       ${f.length ? `<table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Viaje</th><th>Tripulación</th><th>Sección</th><th>Código</th><th>Descripción</th><th class="num">Dif.</th><th class="num">Dinero</th><th></th></tr></thead><tbody>
-      ${f.slice(0, 500).map(({ l, v, trip, x }) => `<tr><td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}</td><td>${esc(l.pdf.enc.viaje)}</td>
+      ${f.slice(0, 500).map(({ l, v, trip, x }) => `<tr><td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}${etqViaje(l)}</td><td>${esc(l.pdf.enc.viaje)}</td>
         <td style="font-size:12px">${trip.map(t => esc(t.nombre)).join(", ") || "—"}</td><td>${x.seccion}</td><td>${esc(x.codigo)}</td><td>${esc(x.nombre)}</td>
         <td class="num"><span class="tag ${cls(x.diferencia)}">${und(x.diferencia)}</span>${x.ajuste ? `<br><small class="ayuda">PDF ${und(x.difPdf)} · ZPD ${und(x.ajuste)}</small>` : ""}</td><td class="num ${cls(x.dinero || 0)}">${x.dinero == null ? "—" : soles(x.dinero)}</td>
         <td><button data-ver="${l.id}">Ver</button></td></tr>`).join("")}
@@ -1171,7 +1235,7 @@ function indiceColab() {
   Object.values(S.liqs).filter(l => l.pdf).forEach(l => {
     const v = vehiculo(l.vehId) || {}, c = calc(l);
     tripLiq(l).forEach(t => get(t).ev.push({ fecha: l.fecha, l, v, tipo: "Liquidación",
-      det: `${t.funcion} · viaje ${l.pdf.enc.viaje} · ${l.estado === "cerrada" ? "cerrada" : "en proceso"}${(l.ajustes || []).length ? ` · ${l.ajustes.length} ajuste(s) ZPD/nota` : ""}${l.comentarioCierre ? ` · “${l.comentarioCierre}”` : ""}`, monto: c.neto, nota: "Neto del vehículo" }));
+      det: `${t.funcion} · viaje ${l.pdf.enc.viaje}${etqViaje(l)} · ${l.estado === "cerrada" ? "cerrada" : "en proceso"}${(l.ajustes || []).length ? ` · ${l.ajustes.length} ajuste(s) ZPD/nota` : ""}${l.comentarioCierre ? ` · “${l.comentarioCierre}”` : ""}`, monto: c.neto, nota: "Neto del vehículo" }));
     (l.cobros || []).forEach(x => get(x).ev.push({ fecha: l.fecha, l, v, tipo: x.tipo === "pago" ? "Pago" : "Descuento",
       det: x.tipo === "pago" ? `${x.medio}${x.operacion ? " · Op. " + x.operacion : ""}` : (x.modo === "tripulacion" ? "Partes iguales con la tripulación" : "Descuento directo"),
       monto: x.tipo === "pago" ? x.monto : -x.monto }));
@@ -1261,12 +1325,14 @@ function vehiculosDelDia(fecha) {
 function filasDia(fecha) {
   const ids = new Set(Object.keys(S.dias[fecha] || {}));
   Object.values(S.liqs).forEach(l => { if (l.fecha === fecha && l.pdf) ids.add(l.vehId); });
-  return [...ids].map(id => {
-    const v = vehiculo(id) || { placa: "?", bk: "" }, l = liqDe(fecha, id);
-    const trip = l && l.pdf ? tripLiq(l) : tripDia(fecha, id).map(t => ({ personaId: t.personaId, nombre: t.p.nombre, dni: t.p.dni, funcion: t.funcion }));
-    const txt = [v.placa, v.bk, l && l.pdf ? l.pdf.enc.viaje + " " + l.pdf.enc.placa + " " + l.pdf.enc.conductor : "", ...trip.map(t => t.nombre + " " + (t.dni || ""))].join(" ");
-    return { v, l: l && l.pdf ? l : null, trip, txt, c: l && l.pdf ? calc(l) : null };
-  }).sort((a, b) => a.v.placa.localeCompare(b.v.placa));
+  return [...ids].flatMap(id => {
+    const v = vehiculo(id) || { placa: "?", bk: "" }, ls = liqsDe(fecha, id).filter(l => l.pdf);
+    return (ls.length ? ls : [null]).map(l => {
+      const trip = l ? tripLiq(l) : tripDia(fecha, id).map(t => ({ personaId: t.personaId, nombre: t.p.nombre, dni: t.p.dni, funcion: t.funcion }));
+      const txt = [v.placa, v.bk, l ? l.pdf.enc.viaje + " " + l.pdf.enc.placa + " " + l.pdf.enc.conductor : "", ...trip.map(t => t.nombre + " " + (t.dni || ""))].join(" ");
+      return { v, l, trip, txt, c: l ? calc(l) : null, n: l ? nv(l) : 1, multi: ls.length > 1 };
+    });
+  }).sort((a, b) => a.v.placa.localeCompare(b.v.placa) || a.n - b.n);
 }
 function vTripulacion(m) {
   const dia = S.dias[FECHA] || {};
@@ -1301,7 +1367,7 @@ function vTripulacion(m) {
       <div class="grid-veh">${vehsF.length ? vehsF.map(v => {
         const t = tripDia(FECHA, v.id);
         return `<div class="veh" data-vt="${v.id}" style="cursor:default">
-          <div class="vh"><span>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</span><span><span class="tag azul">${t.length}</span>${liqDe(FECHA, v.id) && liqDe(FECHA, v.id).pdf ? "" : `<button class="x" data-quitveh="${v.id}" title="Quitar vehículo de este día">✕</button>`}</span></div>
+          <div class="vh"><span>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""}</span><span><span class="tag azul">${t.length}</span>${liqsDe(FECHA, v.id).some(l => l.pdf) ? "" : `<button class="x" data-quitveh="${v.id}" title="Quitar vehículo de este día">✕</button>`}</span></div>
           ${t.length ? `<table><thead><tr><th></th><th class="num">Función</th><th></th></tr></thead><tbody>${t.map(x => `<tr>
             <td>${esc(x.p.nombre)}${x.p.dni ? `<br><small class="ayuda">DNI ${esc(x.p.dni)}</small>` : ""}</td>
             <td class="num"><select data-fun="${v.id}|${x.personaId}" style="padding:2px 4px;font-size:11px">${FUNCIONES.concat(FUNCIONES.includes(x.funcion) ? [] : [x.funcion]).map(f => `<option ${f === x.funcion ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></td>
@@ -1327,7 +1393,7 @@ function vTripulacion(m) {
           <span>Descuento <b class="neg">${soles(r2(ds), false)}</b></span>${fav ? `<span>A favor <b class="pos">${soles(r2(fav), false)}</b></span>` : ""}
         </div>
         ${ab ? `<div class="scroll"><table><thead><tr><th>Placa — Nombre</th><th>Nº viaje</th><th>Conductor (PDF)</th><th>Tripulación</th><th>Estado</th><th class="num">Neto</th><th class="num">A cobrar</th><th class="num">Pagado</th><th class="num">Descuento</th><th></th></tr></thead><tbody>
-          ${filas.map(r => `<tr><td><b>${esc(r.v.placa)}</b>${r.v.bk ? " — " + esc(r.v.bk) : ""}</td>
+          ${filas.map(r => `<tr><td><b>${esc(r.v.placa)}</b>${r.v.bk ? " — " + esc(r.v.bk) : ""}${r.multi || r.n > 1 ? `<br><span class="tag azul">Viaje ${r.n}</span>` : ""}</td>
             <td>${r.l ? esc(r.l.pdf.enc.viaje) : "—"}</td><td>${r.l ? esc(r.l.pdf.enc.conductor) : "—"}</td>
             <td style="font-size:12px">${r.trip.map(t => `${esc(t.nombre)} <small class="ayuda">(${esc(t.funcion)}${t.dni ? " · " + esc(t.dni) : ""})</small>`).join("<br>") || "—"}</td>
             <td>${estadoTag(r.l)}</td>
@@ -1350,7 +1416,7 @@ function vTripulacion(m) {
   $("trAddVeh").onchange = e => { const id = e.target.value; if (!id) return; (S.dias[FECHA] = S.dias[FECHA] || {})[id] = (S.dias[FECHA] || {})[id] || []; guardar(); render(); };
   m.querySelectorAll("[data-quitveh]").forEach(x => x.onclick = () => {
     if (!x.dataset.ok) { x.dataset.ok = 1; x.textContent = "¿Quitar?"; setTimeout(() => { if (x.isConnected) { delete x.dataset.ok; x.textContent = "✕"; } }, 3000); return; }
-    const l = liqDe(FECHA, x.dataset.quitveh); if (l && !l.pdf) delete S.liqs[l.id];
+    liqsDe(FECHA, x.dataset.quitveh).forEach(l => { if (!l.pdf) delete S.liqs[l.id]; });
     delete S.dias[FECHA][x.dataset.quitveh]; if (!Object.keys(S.dias[FECHA]).length) delete S.dias[FECHA];
     guardar(); render();
   });
@@ -1721,9 +1787,9 @@ function filasLiq(ls) {
   return ls.map(l => { const c = calc(l), v = vehiculo(l.vehId) || {}, e = l.pdf.enc;
     return [fmtF(l.fecha), v.placa, v.bk, e.viaje, e.placa, e.conductor, e.revisor, tripLiq(l).map(t => `${t.nombre} (${t.funcion})`).join(", "),
       l.estado === "cerrada" ? "Cerrada" : "En proceso", c.bot, c.caj, c.sobr, c.falt, c.neto, c.aFavor, c.credito, c.aCobrar, c.pagado, c.descontado, c.pendiente,
-      (l.ajustes || []).filter(a => a.codigo !== "COMENTARIO").map(a => `${a.codigo} ${a.cantidad} ${a.codigoMat}`).join("; "), l.comentarioCierre || ""]; });
+      (l.ajustes || []).filter(a => a.codigo !== "COMENTARIO").map(a => `${a.codigo} ${a.cantidad} ${a.codigoMat}`).join("; "), l.comentarioCierre || "", nv(l)]; });
 }
-const COLS_LIQ = ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Placa PDF", "Conductor PDF", "Revisor", "Tripulación", "Estado", "Botellas", "Cajas", "Sobrante S/", "Faltante S/", "Neto S/", "Sobrante a favor S/", "Saldo a favor aplicado S/", "A cobrar S/", "Pagado S/", "Descuento S/", "Pendiente S/", "Ajustes ZPD", "Comentario de cierre"];
+const COLS_LIQ = ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Placa PDF", "Conductor PDF", "Revisor", "Tripulación", "Estado", "Botellas", "Cajas", "Sobrante S/", "Faltante S/", "Neto S/", "Sobrante a favor S/", "Saldo a favor aplicado S/", "A cobrar S/", "Pagado S/", "Descuento S/", "Pendiente S/", "Ajustes ZPD", "Comentario de cierre", "Viaje del día"];
 function filasCobros(ls, tipo) {
   const out = [];
   ls.forEach(l => { const v = vehiculo(l.vehId) || {};
