@@ -227,7 +227,7 @@ function parsePhones(wb){
 // ---------- KML (mismo formato que ROADMAP) ----------
 function buildKML(title, stops, cjsOf){
   const pms = stops.map(s => {
-    const name = `|${s.cliente}|${s.dir}|Cjs:${cjsOf(s)}${hlOn()?`|HL:${fmtHL(s.hlPivot)}`:''}|VH:${s.abre}-${s.cierra}|Tel:${telOf(s)}`;
+    const name = `|${s.cliente}|${s.dir}|Cjs:${cjsOf(s)}|VH:${s.abre}-${s.cierra}|Tel:${telOf(s)}${hlOn()?`|HL:${fmtHL(s.hlPivot)}`:''}`;
     return `\t\t<Placemark>\n\t\t\t<name>${xml(name)}</name>\n\t\t\t<styleUrl>#placemark-red</styleUrl>\n\t\t\t<Point>\n\t\t\t\t<coordinates>${s.lon},${s.lat}</coordinates>\n\t\t\t</Point>\n\t\t</Placemark>`;
   }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
