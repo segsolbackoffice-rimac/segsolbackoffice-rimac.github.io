@@ -1030,7 +1030,7 @@ function seccionCobro(l, c, trip) {
   const filas = (l.cobros || []).map(x => `<tr>
       <td><span class="tag ${x.tipo === "pago" ? "pos" : "neg"}">${x.tipo === "pago" ? "Pago" : "Descuento"}</span></td>
       <td>${esc(x.nombre)}${x.dni ? `<br><small class="ayuda">DNI ${esc(x.dni)}</small>` : ""}</td>
-      <td>${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? ` · Op. ${esc(x.operacion)}` : "") : esc({ persona: "Tripulante", tripulacion: "Toda la tripulación (partes iguales)", otro: "Otra persona" }[x.modo] || "")}</td>
+      <td>${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? ` · Op. ${esc(x.operacion)}` : "") + `${x.recibe ? ` · Recibió: ${esc(x.recibe)}` : ""}` : esc({ persona: "Tripulante", tripulacion: "Toda la tripulación (partes iguales)", otro: "Otra persona" }[x.modo] || "")}</td>
       <td class="num"><b>${soles(x.monto, false)}</b></td>
       <td>${cerrada ? "" : `<button class="x" data-delcob="${x.id}" title="Quitar">✕</button>`}</td></tr>`).join("");
   const opcTrip = trip.map(t => `<option value="${esc(t.personaId)}">${esc(t.nombre)} (${esc(t.funcion)})</option>`).join("");
@@ -1051,6 +1051,8 @@ function seccionCobro(l, c, trip) {
         <label class="f" id="cOtroDniWrap" style="display:none">DNI<input id="cOtroDni" placeholder="DNI" inputmode="numeric"></label>
         <label class="f">Medio<select id="cMedio">${MEDIOS.map(x => `<option>${x}</option>`).join("")}</select></label>
         <label class="f">Nº operación<input id="cOp" placeholder="Opcional" style="width:120px"></label>
+        <label class="f">Responsable que recibe el dinero<input id="cRecibe" list="dlRecibe" value="${esc(S.ultimoReceptor || "")}" placeholder="Nombre de quien recibe" style="width:200px"></label>
+        <datalist id="dlRecibe">${(S.receptores || []).map(r => `<option value="${esc(r)}">`).join("")}</datalist>
         <label class="f">Monto (S/)<input id="cMonto" type="number" step="0.01" min="0.01" value="${montoDef}" style="width:110px"></label>
         <button class="primary" id="cAgregar">Agregar pago</button>
       </div>` : `
@@ -1140,7 +1142,10 @@ function enlazarCobro(l, c, trip) {
     };
     if (FORM.tipo === "pago") {
       const q = quien(); if (!q) return err(trip.length ? "Elige quién de la tripulación realiza el pago." : "Este vehículo no tiene tripulación asignada: asígnala en Tripulación del día.");
-      l.cobros.push({ id: uid(), tipo: "pago", ...q, medio: $("cMedio").value, operacion: $("cOp").value.trim(), monto, modo: "persona", fecha: new Date().toISOString() });
+      const recibe = $("cRecibe").value.trim().toUpperCase();
+      if (!recibe) return err("Indica el responsable que recibe el dinero.");
+      S.ultimoReceptor = recibe; S.receptores = [...new Set([recibe, ...(S.receptores || [])])].slice(0, 30);
+      l.cobros.push({ id: uid(), tipo: "pago", ...q, medio: $("cMedio").value, operacion: $("cOp").value.trim(), recibe, monto, modo: "persona", fecha: new Date().toISOString() });
     } else if (FORM.modo === "tripulacion") {
       if (!trip.length) return err("No hay tripulación asignada.");
       const cent = Math.round(monto * 100), base = Math.floor(cent / trip.length), resto = cent - base * trip.length, grupo = uid();
@@ -1181,7 +1186,7 @@ function vReporte(m) {
   REP.desde = REP.desde || FECHA; REP.hasta = REP.hasta || FECHA;
   const ls = liqsRango(REP.desde, REP.hasta).filter(l => coincideTexto(REP.q, l, vehiculo(l.vehId) || {}, tripLiq(l)));
   let aC = 0, pg = 0, ds = 0, sob = 0, fal = 0, fav = 0;
-  const porMedio = {}, porPersona = {}, porColab = {};
+  const porMedio = {}, porPersona = {}, porColab = {}, porRecibe = {};
   ls.forEach(l => {
     const v = vehiculo(l.vehId) || {};
     (l.cobros || []).forEach(x => {
@@ -1192,7 +1197,9 @@ function vReporte(m) {
     });
     const c = calc(l); aC += c.aCobrar; pg += c.pagado; ds += c.descontado; sob += c.sobr; fal += c.falt; fav += c.aFavor;
     (l.cobros || []).forEach(x => {
-      if (x.tipo === "pago") porMedio[x.medio] = r2((porMedio[x.medio] || 0) + x.monto);
+      if (x.tipo === "pago") { porMedio[x.medio] = r2((porMedio[x.medio] || 0) + x.monto);
+        const rk = x.recibe || "(sin registrar)"; const r = porRecibe[rk] = porRecibe[rk] || { total: 0, n: 0, medios: {} };
+        r.total = r2(r.total + x.monto); r.n++; r.medios[x.medio] = r2((r.medios[x.medio] || 0) + x.monto); }
       else { const k = (x.dni || "") + "|" + x.nombre; porPersona[k] = porPersona[k] || { nombre: x.nombre, dni: x.dni, monto: 0, n: 0 }; porPersona[k].monto = r2(porPersona[k].monto + x.monto); porPersona[k].n++; }
     });
   });
@@ -1221,11 +1228,14 @@ function vReporte(m) {
         <td><b>${esc(p.nombre)}</b></td><td>${esc(p.dni)}</td><td style="font-size:12px">${[...p.placas].map(esc).join("<br>")}</td>
         <td class="num pos">${soles(p.pagado, false)}</td><td class="num neg">${soles(p.descontado, false)}</td><td class="num"><b>${soles(r2(p.pagado + p.descontado), false)}</b></td>
         <td><button data-col="${i}">Ver detalle</button></td></tr>
-        <tr class="det" id="col_${i}"><td colspan="7">${p.items.map(({ l, v, x }) => `<div>${fmtF(l.fecha)} · ${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""} · viaje ${esc(l.pdf.enc.viaje)} · ${x.tipo === "pago" ? "💵 Pago " + esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") : "📉 Descuento" + (x.modo === "tripulacion" ? " (partes iguales)" : "")} · <b>${soles(x.monto, false)}</b></div>`).join("")}</td></tr>`).join("")}
+        <tr class="det" id="col_${i}"><td colspan="7">${p.items.map(({ l, v, x }) => `<div>${fmtF(l.fecha)} · ${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""} · viaje ${esc(l.pdf.enc.viaje)} · ${x.tipo === "pago" ? "💵 Pago " + esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") + (x.recibe ? " · Recibió: " + esc(x.recibe) : "") : "📉 Descuento" + (x.modo === "tripulacion" ? " (partes iguales)" : "")} · <b>${soles(x.monto, false)}</b></div>`).join("")}</td></tr>`).join("")}
       <tr><td colspan="3"><b>TOTAL</b></td><td class="num pos"><b>${soles(r2(pg), false)}</b></td><td class="num neg"><b>${soles(r2(ds), false)}</b></td><td class="num"><b>${soles(r2(pg + ds), false)}</b></td><td></td></tr>
       </tbody></table>` : `<div class="vacio">Aún no hay pagos ni descuentos registrados en este rango.</div>`}
     </div>
     <div class="dos" style="grid-template-columns:1fr 1fr">
+      <div class="card" style="grid-column:1/-1"><h2>Dinero recibido por responsable</h2>${Object.keys(porRecibe).length ? `<table><thead><tr><th>Responsable</th><th class="num">Pagos</th><th>Por medio</th><th class="num">Total recibido</th></tr></thead><tbody>
+        ${Object.entries(porRecibe).sort((a, b) => b[1].total - a[1].total).map(([k, r]) => `<tr><td><b>${esc(k)}</b></td><td class="num">${r.n}</td><td style="font-size:12.5px">${Object.entries(r.medios).map(([mm, v]) => esc(mm) + " " + soles(v, false)).join(" · ")}</td><td class="num pos"><b>${soles(r.total, false)}</b></td></tr>`).join("")}
+        <tr><td colspan="3"><b>Total</b></td><td class="num"><b>${soles(r2(pg), false)}</b></td></tr></tbody></table>` : `<div class="vacio">Sin pagos.</div>`}</div>
       <div class="card"><h2>Pagos por medio</h2>${Object.keys(porMedio).length ? `<table><thead><tr><th>Medio</th><th class="num">Monto</th></tr></thead><tbody>
         ${Object.entries(porMedio).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${soles(v, false)}</td></tr>`).join("")}
         <tr><td><b>Total</b></td><td class="num"><b>${soles(r2(pg), false)}</b></td></tr></tbody></table>` : `<div class="vacio">Sin pagos.</div>`}</div>
@@ -1239,7 +1249,7 @@ function vReporte(m) {
         <td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}${etqViaje(l) ? `<br><span class="tag azul">${etqViaje(l).slice(3)}</span>` : ""}</td><td>${esc(l.pdf.enc.viaje)}</td><td>${estadoTag(l)}</td>
         <td class="num ${cls(c.neto)}">${soles(c.neto)}</td><td class="num pos">${c.aFavor ? soles(c.aFavor, false) : "—"}</td><td class="num">${soles(c.aCobrar, false)}</td><td class="num pos">${soles(c.pagado, false)}</td><td class="num neg">${soles(c.descontado, false)}</td>
         <td><button data-ver="${l.id}">Ver detalle</button> <button data-desg="${l.id}">▾</button></td></tr>
-        <tr class="det" id="d_${l.id}"><td colspan="10">${(l.cobros || []).length ? (l.cobros.map(x => `<div>${x.tipo === "pago" ? "💵 Pago" : "📉 Descuento"} · ${esc(x.nombre)}${x.dni ? " (" + esc(x.dni) + ")" : ""} · ${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") : (x.modo === "tripulacion" ? "partes iguales" : "")} · <b>${soles(x.monto, false)}</b></div>`).join("")) : `<span class="vacio">Sin pagos ni descuentos.</span>`}
+        <tr class="det" id="d_${l.id}"><td colspan="10">${(l.cobros || []).length ? (l.cobros.map(x => `<div>${x.tipo === "pago" ? "💵 Pago" : "📉 Descuento"} · ${esc(x.nombre)}${x.dni ? " (" + esc(x.dni) + ")" : ""} · ${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") + (x.recibe ? " · Recibió: " + esc(x.recibe) : "") : (x.modo === "tripulacion" ? "partes iguales" : "")} · <b>${soles(x.monto, false)}</b></div>`).join("")) : `<span class="vacio">Sin pagos ni descuentos.</span>`}
           <div class="ayuda" style="margin-top:6px">Tripulación: ${tripLiq(l).map(t => esc(t.nombre) + " (" + esc(t.funcion) + ")").join(", ") || "—"}</div></td></tr>`; }).join("")}
       </tbody></table>` : `<div class="vacio">No hay liquidaciones en este rango.</div>`}
     </div>`;
@@ -1349,7 +1359,7 @@ function indiceColab() {
     tripLiq(l).forEach(t => get(t).ev.push({ fecha: l.fecha, l, v, tipo: "Liquidación",
       det: `${t.funcion} · viaje ${l.pdf.enc.viaje}${etqViaje(l)} · ${l.estado === "cerrada" ? "cerrada" : "en proceso"}${(l.ajustes || []).length ? ` · ${l.ajustes.length} ajuste(s) ZPD/nota` : ""}${l.comentarioCierre ? ` · “${l.comentarioCierre}”` : ""}`, monto: c.neto, nota: "Neto del vehículo" }));
     (l.cobros || []).forEach(x => get(x).ev.push({ fecha: l.fecha, l, v, tipo: x.tipo === "pago" ? "Pago" : "Descuento",
-      det: x.tipo === "pago" ? `${x.medio}${x.operacion ? " · Op. " + x.operacion : ""}` : (x.modo === "tripulacion" ? "Partes iguales con la tripulación" : "Descuento directo"),
+      det: x.tipo === "pago" ? `${x.medio}${x.operacion ? " · Op. " + x.operacion : ""}${x.recibe ? " · Recibió: " + x.recibe : ""}` : (x.modo === "tripulacion" ? "Partes iguales con la tripulación" : "Descuento directo"),
       monto: x.tipo === "pago" ? x.monto : -x.monto }));
   });
   Object.values(L.fuentes).forEach(f => {
@@ -1971,7 +1981,7 @@ function filasCobros(ls, tipo) {
   const out = [];
   ls.forEach(l => { const v = vehiculo(l.vehId) || {};
     (l.cobros || []).filter(c => c.tipo === tipo).forEach(c => out.push(tipo === "pago"
-      ? [fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, c.nombre, c.dni, c.medio, c.operacion || "", c.monto]
+      ? [fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, c.nombre, c.dni, c.medio, c.operacion || "", c.recibe || "", c.monto]
       : [fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, c.nombre, c.dni, c.modo === "tripulacion" ? "Partes iguales (tripulación)" : c.modo === "otro" ? "Otra persona" : "Tripulante", c.monto])); });
   return out;
 }
@@ -2001,7 +2011,13 @@ function exportarReporte(ls, desde, hasta) {
   wcaja.lastRow.font = { bold: true };
   wcaja.orderNo = -2;
   hoja(wb, "Liquidaciones", COLS_LIQ, filasLiq(ls), [11, 12, 13, 14, 15, 16, 17, 18, 19], 13);
-  hoja(wb, "Pagos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Pagó", "DNI", "Medio", "Nº operación", "Monto S/"], filasCobros(ls, "pago"), [8]);
+  const filasPago = filasCobros(ls, "pago");
+  hoja(wb, "Pagos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Pagó", "DNI", "Medio", "Nº operación", "Recibió", "Monto S/"], filasPago, [9]);
+  const resp = {}; filasPago.forEach(r => { const k = r[8] || "(sin registrar)", o = resp[k] = resp[k] || { n: 0, t: 0, m: {} }; o.n++; o.t = r2(o.t + r[9]); o.m[r[6]] = r2((o.m[r[6]] || 0) + r[9]); });
+  const filasResp = Object.entries(resp).map(([k, o]) => [k, o.n, ...MEDIOS.map(mm => o.m[mm] || 0), o.t]);
+  filasResp.push(["TOTAL", filasResp.reduce((a, r) => a + r[1], 0), ...MEDIOS.map((_, i) => r2(filasResp.reduce((a, r) => a + r[2 + i], 0))), r2(filasResp.reduce((a, r) => a + r[2 + MEDIOS.length], 0))]);
+  const wresp = hoja(wb, "Por responsable", ["Responsable que recibe", "Pagos", ...MEDIOS.map(mm => mm + " S/"), "Total recibido S/"], filasResp, [...MEDIOS.map((_, i) => 2 + i), 2 + MEDIOS.length]);
+  wresp.lastRow.font = { bold: true };
   hoja(wb, "Descuentos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Persona", "DNI", "Tipo", "Monto S/"], filasCobros(ls, "descuento"), [7]);
   const col = {};
   ls.forEach(l => (l.cobros || []).forEach(x => { const k = (x.dni || "") + "|" + x.nombre; const p = col[k] = col[k] || [x.nombre, x.dni, 0, 0, 0];
