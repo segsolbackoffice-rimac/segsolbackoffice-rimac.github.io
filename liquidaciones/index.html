@@ -240,11 +240,11 @@ function parsearLiquidacion(paginas) {
         return;
       }
       const primera = (toks[0] || "").toLowerCase();
-      if (SECCIONES[primera] && t.includes("Inconsistencias")) { seccion = SECCIONES[primera]; return; }
+      if (SECCIONES[primera] && /inconsistencia/i.test(t)) { seccion = SECCIONES[primera]; return; }   // "1 Inconsistencia" o "2 Inconsistencias"
       if (!seccion) return;
       const iR = toks.findIndex(x => RE_RATIO.test(x));
       if (iR < 2) return;
-      const codigo = toks[iR - 1];
+      const codigo = toks[iR - 1].replace(/^#/, "").replace(/^0+(?=\d)/, "");   // "#000000000000014259" → "14259"
       if (!RE_NUM.test(codigo)) return;
       const [, x, y] = toks[iR].match(RE_RATIO);
       lineas.push({ seccion, codigo, nombre: toks.slice(0, iR - 1).join(" "),
