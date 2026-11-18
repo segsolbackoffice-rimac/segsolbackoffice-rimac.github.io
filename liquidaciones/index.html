@@ -297,6 +297,7 @@ const limpiaBK = t => { const x = String(t).replace(/[^A-Za-z0-9]/g, "").toUpper
 const mediana = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; };
 
 function parseTripulacion(words) {
+  const ENCAB = /^(funci[oó]n|cargo|nombres?|rol)$/i;
   words = words.map(w => ({ ...w, t: String(w.t).trim(), xc: (w.x0 + w.x1) / 2 }))
     .filter(w => w.t && /[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ]/.test(w.t));
   const hMed = mediana(words.map(w => w.h)) || 12, tol = hMed * 0.6;
@@ -304,41 +305,56 @@ function parseTripulacion(words) {
   let fecha = null;
   const fw = words.find(w => RE_FECHA_T.test(w.t));
   if (fw) { const [, d, m, y] = fw.t.match(RE_FECHA_T); const yy = y.length === 2 ? "20" + y : y; fecha = `${yy}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`; }
-  const placas = words.filter(w => esPlaca(w.t));
+  const placas = words.filter(w => esPlaca(w.t) && !esBK(w.t));
   if (!placas.length) return { fecha, bloques: [] };
+  // ¿formato tarjeta (SEGSOL: "PLACA — BK" en una línea, función a la derecha) o formato hoja (BK debajo, cargo a la izquierda)?
+  const bkMismaFila = p => words.find(w => esBK(w.t) && Math.abs(w.yc - p.yc) <= tol * 1.5 && w.x0 > p.x0 && w.x0 - p.x1 < (p.x1 - p.x0) * 3);
+  const tarjeta = placas.filter(bkMismaFila).length > placas.length / 2;
   // filas de placas y espaciado
   const filasP = [];
   [...placas].sort((a, b) => a.yc - b.yc).forEach(p => { const f = filasP.find(f => Math.abs(f.yc - p.yc) <= tol * 2); if (f) f.items.push(p); else filasP.push({ yc: p.yc, items: [p] }); });
   filasP.forEach(f => f.items.sort((a, b) => a.xc - b.xc));
-  const espX = mediana(filasP.flatMap(f => f.items.slice(1).map((p, i) => p.xc - f.items[i].xc)));
+  const ref = p => tarjeta ? p.x0 : p.xc;                                   // tarjeta: alineada a la izquierda · hoja: centrada
+  const espX = mediana(filasP.flatMap(f => f.items.slice(1).map((p, i) => ref(p) - ref(f.items[i]))));
   const espY = mediana(filasP.slice(1).map((f, i) => f.yc - filasP[i].yc));
-  const usados = new Set();
   const bloques = [];
   filasP.forEach((fila, fi) => fila.items.forEach((p, pi) => {
     const izq = fila.items[pi - 1], der = fila.items[pi + 1];
-    const half = espX ? espX / 2 : Infinity;
-    const xa = izq ? (izq.xc + p.xc) / 2 : p.xc - half, xb = der ? (p.xc + der.xc) / 2 : p.xc + half;
+    let xa, xb;
+    if (tarjeta) { const m = espX ? espX * 0.1 : 0; xa = ref(p) - m; xb = der ? ref(der) - m : (espX ? ref(p) + espX - m : Infinity); }
+    else { const half = espX ? espX / 2 : Infinity; xa = izq ? (ref(izq) + ref(p)) / 2 : ref(p) - half; xb = der ? (ref(p) + ref(der)) / 2 : ref(p) + half; }
     const abajo = filasP.slice(fi + 1).flatMap(f => f.items).filter(q => q.xc > xa && q.xc < xb).sort((a, b) => a.yc - b.yc)[0];
-    const ya = p.yc + tol, yb = abajo ? abajo.yc - tol : (espY ? p.yc + espY - tol : Infinity);
-    const dentro = words.filter(w => w !== p && w.xc > xa && w.xc < xb && w.yc > ya && w.yc < yb && !esPlaca(w.t) && !RE_FECHA_T.test(w.t));
-    // BK: el más cercano debajo de la placa
-    const bkW = dentro.filter(w => esBK(w.t)).sort((a, b) => a.yc - b.yc)[0];
-    const resto = dentro.filter(w => w !== bkW);
-    // filas de texto
+    const yb = abajo ? abajo.yc - tol : (espY ? p.yc + espY - tol : Infinity);
+    // BK: en la misma fila (tarjeta) o el más cercano debajo (hoja)
+    const bkW = (tarjeta && bkMismaFila(p)) || words.filter(w => esBK(w.t) && w.xc > xa && w.xc < xb && w.yc > p.yc + tol && w.yc < yb).sort((a, b) => a.yc - b.yc)[0];
+    const resto = words.filter(w => w !== p && w !== bkW && w.xc > xa && w.xc < xb && w.yc > p.yc + tol && w.yc < yb
+      && !esPlaca(w.t) && !esBK(w.t) && !RE_FECHA_T.test(w.t) && !ENCAB.test(_st(w.t).replace(/[^a-z]/g, "")));
     const filas = [];
     resto.sort((a, b) => a.yc - b.yc).forEach(w => { const f = filas.find(f => Math.abs(f.yc - w.yc) <= tol); if (f) f.ws.push(w); else filas.push({ yc: w.yc, ws: [w] }); });
+    filas.forEach(f => f.ws.sort((a, b) => a.x0 - b.x0));
     bloques.push({ p, bkW, filas: filas.sort((a, b) => a.yc - b.yc), orden: fi * 1000 + pi });
   }));
-  // posición típica de la columna de cargos y de la de nombres (respecto al centro de la placa)
+  // formato hoja: posición típica de la columna de cargos y de la de nombres (respecto al centro de la placa)
   const offLab = [], offNom = [];
-  bloques.forEach(B => B.filas.forEach(f => { f.ws.sort((a, b) => a.x0 - b.x0); const i = f.ws.findIndex(w => rolTrip(w.t));
+  if (!tarjeta) bloques.forEach(B => B.filas.forEach(f => { const i = f.ws.findIndex(w => rolTrip(w.t));
     if (i >= 0) { offLab.push(f.ws[i].x0 - B.p.xc); if (f.ws[i + 1]) offNom.push(f.ws[i + 1].x0 - B.p.xc); } }));
   const oL = offLab.length ? mediana(offLab) : null, oN = offNom.length ? mediana(offNom) : null;
   const SIG = { null: "CHOFER", CHOFER: "REPARTO", REPARTO: "AUXILIAR", AUXILIAR: "AUXILIAR", "AUXILIAR APOYO": "AUXILIAR APOYO" };
-  return { fecha, bloques: bloques.sort((a, b) => a.orden - b.orden).map(B => {
+  const txt = ws => ws.map(w => w.t).join(" ").replace(/\s+/g, " ").trim();
+  return { fecha, formato: tarjeta ? "tarjetas" : "hoja", bloques: bloques.sort((a, b) => a.orden - b.orden).map(B => {
     const miembros = []; let rol = null;
     B.filas.forEach(f => {
-      const iRol = f.ws.findIndex(w => rolTrip(w.t));
+      // en formato tarjeta la función es la última palabra de la fila (columna derecha)
+      const iRol = tarjeta ? (rolTrip(f.ws[f.ws.length - 1].t) ? f.ws.length - 1 : -1) : f.ws.findIndex(w => rolTrip(w.t));
+      if (tarjeta) {
+        if (iRol >= 0) {
+          const nombre = txt(f.ws.slice(0, iRol));
+          if (nombre) miembros.push({ funcion: rolTrip(f.ws[iRol].t), nombre: nombre.toUpperCase() });
+        } else if (miembros.length) {                       // segunda línea de un nombre largo
+          const m = miembros[miembros.length - 1]; m.nombre = (m.nombre + " " + txt(f.ws)).toUpperCase().trim();
+        }
+        return;
+      }
       let nombreWs;
       if (iRol >= 0) { rol = rolTrip(f.ws[iRol].t); nombreWs = f.ws.filter((w, i) => i !== iRol && w.x0 >= f.ws[iRol].x0); }
       else if (oL != null && oN != null && f.ws.length > 1 && f.ws[0].x0 - B.p.xc < (oL + oN) / 2) {
@@ -348,7 +364,7 @@ function parseTripulacion(words) {
         nombreWs = f.ws;
         if ((rol === "CHOFER" || rol === "REPARTO") && miembros.some(m => m.funcion === rol)) rol = SIG[rol];
       }
-      const nombre = nombreWs.map(w => w.t).join(" ").replace(/\s+/g, " ").trim();
+      const nombre = txt(nombreWs);
       if (!rol || !nombre || /^[\W_]+$/.test(nombre)) return;
       miembros.push({ funcion: rol, nombre: nombre.toUpperCase() });
     });
@@ -1769,18 +1785,24 @@ async function palabrasExcel(file) {
 // personas del registro que coinciden con un nombre leído (todas sus palabras deben estar en el nombre registrado)
 function candidatos(nombre) {
   const tok = x => _st(x).replace(/[^a-z\s]/g, " ").split(/\s+/).filter(t => t.length > 1);
+  // misma palabra, abreviada ("GABRIEL G.") o con una letra distinta ("JEISON" / "JEYSON")
+  const igual = (a, b) => a === b || (a.length >= 3 && b.startsWith(a)) || (b.length >= 3 && a.startsWith(b)) || (a.length >= 5 && b.length >= 5 && distEd(a, b) <= 1);
   const tk = tok(nombre); if (!tk.length) return [];
   return S.personal.map(p => {
     if (_st(p.nombre).trim() === _st(nombre).trim() || (p.alias || []).some(a => _st(a) === _st(nombre))) return { p, sc: 3 };
-    const pt = tok(p.nombre);
-    const hit = tk.filter(t => pt.some(x => x === t || (t.length >= 3 && x.startsWith(t)))).length;
-    return { p, sc: hit === tk.length ? 1 + (pt[0] === tk[0] ? 1 : 0) : 0 };
+    const pt = tok(p.nombre); if (!pt.length) return { p, sc: 0 };
+    const leidoEnRegistrado = tk.every(t => pt.some(x => igual(t, x)));     // "GUILLERMO" ⊂ "GUILLERMO ANTONIO HERNANDEZ ORTIZ"
+    const registradoEnLeido = pt.every(x => tk.some(t => igual(t, x)));     // registrado corto, leído completo
+    const primero = igual(pt[0], tk[0]), exactas = pt.filter(x => tk.includes(x)).length;
+    const base = leidoEnRegistrado ? (primero ? 2 : 1.6) : registradoEnLeido ? (primero ? 1.5 : 1.1) : 0;
+    return { p, sc: base ? base + 0.1 * exactas : 0 };          // a igualdad, gana quien coincide en más palabras exactas (ANGELLO ≠ ANGEL)
   }).filter(x => x.sc > 0).sort((a, b) => b.sc - a.sc || a.p.nombre.localeCompare(b.p.nombre));
 }
 function abrirImportador(res, archivo) {
   IMP = { fecha: res.fecha || FECHA, archivo, bloques: res.bloques.map(b => {
     const v = S.vehiculos.find(x => placaCoincide(x.placa, b.placa));
-    return { incluir: true, placa: v ? v.placa : b.placa, bk: v && v.bk ? v.bk : b.bk, bkLeido: b.bk, vehId: v ? v.id : null,
+    const bkCompleto = v && v.bk && b.bk && b.bk.length > v.bk.length && b.bk.endsWith(v.bk.replace(/^BK/i, ""));
+    return { incluir: true, placa: v ? v.placa : b.placa, bk: v && v.bk && !bkCompleto ? v.bk : b.bk || (v ? v.bk : ""), bkTocado: !!bkCompleto, bkLeido: b.bk, vehId: v ? v.id : null,
       miembros: b.miembros.map(m => { const c = candidatos(m.nombre); return { ...m, leido: m.nombre, sel: c.length ? c[0].p.id : "__nuevo", cand: c.map(x => x.p.id) }; }) };
   }) };
   pintarImportador();
@@ -1848,7 +1870,13 @@ function confirmarImport() {
       if (m.sel === "__omitir" || !nom) return;
       let p = m.sel !== "__nuevo" ? persona(m.sel) : (creados[nom] || null);
       if (!p) { p = { id: uid(), nombre: nom, dni: "", funcion: m.funcion }; S.personal.push(p); creados[nom] = p; np++; }
-      else if (_st(p.nombre) !== _st(nom)) p.alias = [...new Set([...(p.alias || []), nom])];   // recordar cómo figura en la hoja
+      else if (_st(p.nombre) !== _st(nom)) {
+        const tk = x => _st(x).replace(/[^a-z\s]/g, " ").split(/\s+/).filter(t => t.length > 1);
+        const corto = tk(p.nombre), largo = tk(nom);
+        if (largo.length > corto.length && corto.every(x => largo.some(t => t === x || distEd(t, x) <= 1))) {   // llegó el nombre completo: se actualiza
+          p.alias = [...new Set([...(p.alias || []), p.nombre])]; p.nombre = nom;
+        } else p.alias = [...new Set([...(p.alias || []), nom])];   // recordar cómo figura en la hoja
+      }
       if (lista.some(t => t.personaId === p.id)) return;
       Object.keys(dia).forEach(k => { if (k !== v.id) dia[k] = dia[k].filter(t => t.personaId !== p.id); });
       lista.push({ personaId: p.id, funcion: m.funcion }); nt++;
