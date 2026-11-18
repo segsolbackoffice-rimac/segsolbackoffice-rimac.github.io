@@ -580,18 +580,22 @@ function libro() {
     aplicado[l.id] = (l.creditos || []).slice();
     aplicado[l.id].forEach(u => { const f = fuentes[u.src]; if (f) { f.saldo = r2(f.saldo - u.monto); f.usos.push({ l, monto: u.monto }); } });
   });
-  // liquidaciones abiertas con faltante: usan el saldo vigente de su tripulación, del más antiguo al más nuevo
-  all.filter(l => l.estado !== "cerrada" && base[l.id].aCobrar > 0)
-    .sort((a, b) => a.fecha.localeCompare(b.fecha) || (a.creado || a.id).localeCompare(b.creado || b.id)).forEach(l => {
-      const keys = new Set(tripLiq(l).map(pkey)); let falta = base[l.id].aCobrar; const us = [];
-      Object.values(fuentes).filter(f => f.saldo > 0 && keys.has(f.owner.key) && f.fecha < l.fecha && l.fecha <= f.vence)
-        .sort((a, b) => a.fecha.localeCompare(b.fecha)).forEach(f => {
-          if (falta <= 0) return;
-          const t = r2(Math.min(falta, f.saldo)); f.saldo = r2(f.saldo - t); falta = r2(falta - t);
-          f.usos.push({ l, monto: t }); us.push({ src: f.id, monto: t, nombre: f.owner.nombre, fecha: f.fecha, manual: !!f.manual });
-        });
-      aplicado[l.id] = us;
-    });
+  // liquidaciones abiertas con faltante: usan el saldo vigente de su tripulación
+  const abiertas = all.filter(l => l.estado !== "cerrada" && base[l.id].aCobrar > 0)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || nv(a) - nv(b) || (a.creado || a.id).localeCompare(b.creado || b.id));
+  const falta = {}, keys = {};
+  abiertas.forEach(l => { falta[l.id] = base[l.id].aCobrar; keys[l.id] = new Set(tripLiq(l).map(pkey)); aplicado[l.id] = []; });
+  const elegible = (l, f) => f.saldo > 0 && keys[l.id].has(f.owner.key) && f.fecha < l.fecha && l.fecha <= f.vence;
+  const usar = (l, f) => {
+    if (falta[l.id] <= 0 || f.saldo <= 0) return;
+    const t = r2(Math.min(falta[l.id], f.saldo)); f.saldo = r2(f.saldo - t); falta[l.id] = r2(falta[l.id] - t);
+    f.usos.push({ l, monto: t }); aplicado[l.id].push({ src: f.id, monto: t, nombre: f.owner.nombre, fecha: f.fecha, manual: !!f.manual });
+  };
+  // 1) cada neteo cubre primero la liquidación en la que se registró (aunque el mismo carro tenga otro viaje abierto)
+  abiertas.forEach(l => Object.values(fuentes).filter(f => f.manual && f.manual.liqId === l.id && elegible(l, f)).forEach(f => usar(l, f)));
+  // 2) lo que quede de cada saldo cubre las demás liquidaciones, de la más antigua a la más nueva
+  abiertas.forEach(l => Object.values(fuentes).filter(f => elegible(l, f) && !(f.manual && f.manual.liqId !== l.id && S.liqs[f.manual.liqId] && S.liqs[f.manual.liqId].estado !== "cerrada" && falta[f.manual.liqId] > 0))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha)).forEach(f => usar(l, f)));
   const hoy = hoyISO();
   Object.values(fuentes).forEach(f => { f.estado = f.saldo <= 0 ? "Aplicado" : hoy > f.vence ? "Vencido" : "Vigente"; });
   return (LIBRO = { base, fuentes, aplicado });
@@ -1097,6 +1101,7 @@ function seccionCobro(l, c, trip) {
     ${c.creditos.map(u => `<p class="ayuda pos" style="margin:6px 0 0">✔ Se cubrió ${soles(u.monto, false)} con el saldo a favor de <b>${esc(u.nombre)}</b> (${u.manual ? "neteo del sobrante" : "sobrante"} del ${fmtF(u.fecha)}).</p>`).join("")}
     ${infoSaldo(l, c, trip)}
     ${c.aCobrar === 0 && !cerrada ? `<p class="ayuda">No hay nada que cobrar. Puedes cerrar la liquidación.</p>` : ""}
+    ${!cerrada && c.pendiente > 0 ? `<p class="ayuda m-warn" style="margin:6px 0 0">Para cerrar, cubre los <b>${soles(c.pendiente, false)}</b> pendientes con un pago, un descuento o un neteo.</p>` : ""}
     ${c.pendiente < 0 ? `<p class="ayuda m-err">Lo registrado supera lo que se debe cobrar en ${soles(-c.pendiente, false)}. Quita o corrige algún pago o descuento.</p>` : ""}
     ${filas ? `<div class="card scroll" style="padding:0;margin-top:10px"><table><thead><tr><th>Tipo</th><th>Persona</th><th>Medio / detalle</th><th class="num">Monto</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>` : ""}
     ${listaNeteos(l)}
