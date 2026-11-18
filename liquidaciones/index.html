@@ -1798,12 +1798,14 @@ function candidatos(nombre) {
     return { p, sc: base ? base + 0.1 * exactas : 0 };          // a igualdad, gana quien coincide en más palabras exactas (ANGELLO ≠ ANGEL)
   }).filter(x => x.sc > 0).sort((a, b) => b.sc - a.sc || a.p.nombre.localeCompare(b.p.nombre));
 }
+// una sola coincidencia clara → se elige; varias igual de probables (ej. dos GUILLERMO distintos) → el usuario decide
+const selInicial = c => !c.length ? "__nuevo" : (c.length > 1 && c[0].sc - c[1].sc < 0.15) ? "__elegir" : c[0].p.id;
 function abrirImportador(res, archivo) {
   IMP = { fecha: res.fecha || FECHA, archivo, bloques: res.bloques.map(b => {
     const v = S.vehiculos.find(x => placaCoincide(x.placa, b.placa));
     const bkCompleto = v && v.bk && b.bk && b.bk.length > v.bk.length && b.bk.endsWith(v.bk.replace(/^BK/i, ""));
     return { incluir: true, placa: v ? v.placa : b.placa, bk: v && v.bk && !bkCompleto ? v.bk : b.bk || (v ? v.bk : ""), bkTocado: !!bkCompleto, bkLeido: b.bk, vehId: v ? v.id : null,
-      miembros: b.miembros.map(m => { const c = candidatos(m.nombre); return { ...m, leido: m.nombre, sel: c.length ? c[0].p.id : "__nuevo", cand: c.map(x => x.p.id) }; }) };
+      miembros: b.miembros.map(m => { const c = candidatos(m.nombre); return { ...m, leido: m.nombre, sel: selInicial(c), cand: c.map(x => x.p.id) }; }) };
   }) };
   pintarImportador();
 }
@@ -1829,6 +1831,7 @@ function pintarImportador() {
           <td><input data-bi="${i}" data-mj="${j}" data-k="nombre" value="${esc(m.nombre)}"></td>
           <td><select data-bi="${i}" data-mj="${j}" data-k="sel">
             ${m.cand.map(id => persona(id)).filter(Boolean).map(p => `<option value="${p.id}" ${m.sel === p.id ? "selected" : ""}>★ ${esc(p.nombre)}${p.dni ? " · " + esc(p.dni) : ""}</option>`).join("")}
+            ${m.sel === "__elegir" ? `<option value="__elegir" selected>⚠ Hay ${m.cand.length} personas con ese nombre: elige una</option>` : ""}
             <option value="__nuevo" ${m.sel === "__nuevo" ? "selected" : ""}>➕ Crear nuevo: ${esc(m.nombre)}</option>
             <option value="__omitir" ${m.sel === "__omitir" ? "selected" : ""}>— Omitir —</option>
             ${otros.length ? `<optgroup label="Todo el personal">${otros.filter(p => !m.cand.includes(p.id)).map(p => `<option value="${p.id}" ${m.sel === p.id ? "selected" : ""}>${esc(p.nombre)}${p.dni ? " · " + esc(p.dni) : ""}</option>`).join("")}</optgroup>` : ""}
@@ -1845,7 +1848,7 @@ function pintarImportador() {
   $("hoja").querySelectorAll("[data-bi]").forEach(el => el.onchange = () => {
     const b = I.bloques[+el.dataset.bi], k = el.dataset.k;
     if (el.dataset.mj != null) { const m = b.miembros[+el.dataset.mj]; m[k] = k === "nombre" ? el.value.toUpperCase() : el.value;
-      if (k === "nombre") { const c = candidatos(m.nombre); m.cand = c.map(x => x.p.id); if (m.sel === "__nuevo" && c.length) m.sel = c[0].p.id; } }
+      if (k === "nombre") { const c = candidatos(m.nombre); m.cand = c.map(x => x.p.id); if (m.sel === "__nuevo" || m.sel === "__elegir") m.sel = selInicial(c); } }
     else if (k === "incluir") b.incluir = el.checked;
     else if (k === "placa") { b.placa = el.value.toUpperCase().trim(); const v = S.vehiculos.find(x => placaCoincide(x.placa, b.placa)); b.vehId = v ? v.id : null; }
     else if (k === "bk") { b.bk = el.value.toUpperCase().trim(); b.bkTocado = true; }
@@ -1857,6 +1860,8 @@ function pintarImportador() {
 }
 function confirmarImport() {
   const I = IMP, F = I.fecha; if (!F) return toast("Indica la fecha.");
+  const dudas = I.bloques.filter(b => b.incluir).flatMap(b => b.miembros.filter(m => m.sel === "__elegir").map(m => `${m.nombre} (${b.placa})`));
+  if (dudas.length) return toast(`Elige a quién corresponde: ${dudas.join(", ")}. Hay más de una persona registrada con ese nombre.`);
   if (bloqueado(F)) return;
   const dia = S.dias[F] = S.dias[F] || {};
   let nv = 0, np = 0, nt = 0; const creados = {};
@@ -1868,8 +1873,8 @@ function confirmarImport() {
     b.miembros.forEach(m => {
       const nom = (m.nombre || "").trim().toUpperCase();
       if (m.sel === "__omitir" || !nom) return;
-      let p = m.sel !== "__nuevo" ? persona(m.sel) : (creados[nom] || null);
-      if (!p) { p = { id: uid(), nombre: nom, dni: "", funcion: m.funcion }; S.personal.push(p); creados[nom] = p; np++; }
+      let p = m.sel !== "__nuevo" ? persona(m.sel) : null;
+      if (!p) { p = { id: uid(), nombre: nom, dni: "", funcion: m.funcion }; S.personal.push(p); np++; }   // homónimos: cada fila nueva es una persona distinta
       else if (_st(p.nombre) !== _st(nom)) {
         const tk = x => _st(x).replace(/[^a-z\s]/g, " ").split(/\s+/).filter(t => t.length > 1);
         const corto = tk(p.nombre), largo = tk(nom);
