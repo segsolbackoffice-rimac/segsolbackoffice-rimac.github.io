@@ -742,7 +742,7 @@ function estadoTag(l) {
 // =====================================================================
 // Navegación
 // =====================================================================
-const TITULOS = { liquidar: "Liquidaciones", reporte: "Cierre del día: total pagado y descontado al personal", traza: "Trazabilidad de faltantes y sobrantes", inventario: "Inventario: faltantes y sobrantes netos (después de ZPD y parches)",
+const TITULOS = { liquidar: "Liquidaciones", reporte: "Cierre del día: total pagado y descontado al personal", traza: "Trazabilidad de faltantes y sobrantes", inventario: "Inventario: faltantes y sobrantes netos",
   tripulacion: "Tripulación del día", personal: "Personal", vehiculos: "Vehículos", config: "Configuración" };
 function ir(v) {
   VISTA = v;
@@ -1597,13 +1597,23 @@ function vReporte(m) {
 // =====================================================================
 // VISTA: Inventario — diferencias finales por material (después de ZPD7/ZPD4 y parches)
 // =====================================================================
-let INV = { desde: null, hasta: null, q: "", seccion: "", tipo: "f", estado: "", abierto: new Set() };
-function datosInventario() {
+let INV = { tab: "vac", desde: null, hasta: null, q: "", seccion: "Productos", tipo: "f", estado: "", abierto: new Set() };
+// grupos de vacíos que se compensan entre sí: misma clase de envase y medida (botellas 620/630/650 ml, cajas ×12 de esas botellas, etc.)
+function grupoVacio(nombre) {
+  const e = infoEnvase(nombre, S.precios), n = String(nombre).toUpperCase();
+  const nums = (n.match(/\d{3,4}/g) || []).map(Number).filter(x => x >= 150 && x <= 3000);
+  const ml = e.tipo.startsWith("Botella") ? (+e.tipo.replace(/[^\d.]/g, "") || nums[0]) : nums[0];
+  const banda = !ml ? "" : ml < 400 ? "300–355 ml" : ml < 600 ? `${ml} ml` : ml < 700 ? "600–650 ml" : (ml >= 900 && ml <= 1200) ? "1 litro (1000–1100 ml)" : `${ml} ml`;
+  if (e.tipo === "Caja") { const pk = (n.match(/X\s*(\d{1,2})\s*BT/) || [])[1]; return { clave: "CAJA|" + banda + "|" + (pk || ""), nombre: `Cajas${banda ? " para " + banda : ""}${pk ? " × " + pk : ""}`, clase: "Caja" }; }
+  if (e.tipo.startsWith("Botella")) return { clave: "BOT|" + banda, nombre: `Botellas ${banda}`, clase: "Botella" };
+  return { clave: "OTRO|" + n, nombre: String(nombre), clase: "Otro" };
+}
+function materialesInventario(secciones) {
   const mats = {};
   Object.values(S.liqs).filter(l => l.pdf && l.fecha >= INV.desde && l.fecha <= INV.hasta && (!INV.estado || (INV.estado === "c" ? l.estado === "cerrada" : l.estado !== "cerrada")))
     .forEach(l => {
       const c = calc(l), v = vehiculo(l.vehId) || {}, trip = tripLiq(l);
-      c.lineas.filter(x => x.diferencia !== 0 && (!INV.seccion || x.seccion === INV.seccion)).forEach(x => {
+      c.lineas.filter(x => x.diferencia !== 0 && secciones.includes(x.seccion)).forEach(x => {
         const txt = [x.codigo, x.nombre, v.placa, v.bk, l.pdf.enc.viaje, ...trip.map(t => t.nombre + " " + (t.dni || ""))].join(" ");
         if (!hayQ(INV.q, txt)) return;
         const k = x.seccion + "|" + x.codigo;
@@ -1616,72 +1626,113 @@ function datosInventario() {
         M.movs.push({ l, v, trip, x, fac, valor });
       });
     });
-  return Object.values(mats).map(M => ({ ...M, neto: M.sob + M.fal, uNeto: M.uSob + M.uFal }))
-    .filter(M => INV.tipo === "f" ? M.fal < 0 : INV.tipo === "s" ? M.sob > 0 : true)
-    .sort((a, b) => a.seccion.localeCompare(b.seccion) || (a.uNeto - b.uNeto) || a.codigo.localeCompare(b.codigo));
+  return Object.values(mats).map(M => ({ ...M, neto: M.sob + M.fal, uNeto: M.uSob + M.uFal }));
+}
+const pasaTipo = neto => INV.tipo === "f" ? neto < 0 : INV.tipo === "s" ? neto > 0 : true;
+function filaMaterial(M, sangria) {
+  const k = M.seccion + "|" + M.codigo, ab = INV.abierto.has(k), r = M.seccion === "Productos" ? rubroProd(M.nombre) : null, prod = M.seccion !== "Vacíos";
+  return `<tr class="click" data-invk="${esc(k)}">
+    <td>${sangria ? "&nbsp;&nbsp;&nbsp;&nbsp;" : ""}${ab ? "▾" : "▸"} ${esc(M.codigo)}</td><td>${esc(M.nombre)}${r ? `<br><small class="ayuda">${esc(r.txt)}</small>` : !sangria && M.tipo ? `<br><small class="ayuda">${esc(M.tipo)}</small>` : ""}</td>
+    <td class="num pos">${M.sob ? und(M.sob) : "—"}</td><td class="num neg">${M.fal ? und(M.fal) : "—"}</td><td class="num"><b class="${cls(M.neto)}">${und(M.neto)}</b></td>
+    ${prod ? `<td class="num"><b class="${cls(M.uNeto)}">${und(M.uNeto)}</b></td>` : ""}
+    <td class="num ${cls(M.valor)}">${M.valor || !M.sinValor ? soles(M.valor) : "Sin precio"}${M.sinValor && M.valor ? ` <small class="ayuda">(${M.sinValor} sin precio)</small>` : ""}</td>
+    <td class="num">${M.movs.length}</td></tr>
+    ${ab ? `<tr class="det on"><td colspan="${prod ? 8 : 7}"><table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Nº viaje</th><th>Tripulación</th><th class="num">Dif. PDF</th><th class="num">ZPD</th>${prod ? `<th class="num">Parche</th>` : ""}<th class="num">Final</th>${M.seccion === "Productos" ? `<th class="num">Unidades</th>` : ""}<th class="num">Valor</th><th>Estado</th><th></th></tr></thead><tbody>
+      ${M.movs.slice().sort((a, b) => b.l.fecha.localeCompare(a.l.fecha)).map(mv => `<tr><td>${fmtF(mv.l.fecha)}</td><td><b>${esc(mv.v.placa)}</b>${mv.v.bk ? " — " + esc(mv.v.bk) : ""}${etqViaje(mv.l)}</td><td>${esc(mv.l.pdf.enc.viaje)}</td>
+        <td style="font-size:12px">${mv.trip.map(t => `${esc(t.nombre)} <small class="ayuda">(${esc(t.funcion)}${t.dni ? " · " + esc(t.dni) : ""})</small>`).join("<br>") || "—"}</td>
+        <td class="num">${und(mv.x.difPdf)}</td><td class="num">${mv.x.ajuste ? und(mv.x.ajuste) : "—"}</td>${prod ? `<td class="num">${mv.x.parche ? und(mv.x.parche) : "—"}</td>` : ""}
+        <td class="num"><span class="tag ${cls(mv.x.diferencia)}">${und(mv.x.diferencia)}</span></td>
+        ${M.seccion === "Productos" ? `<td class="num">${und(mv.x.diferencia * mv.fac)}${mv.fac > 1 ? ` <small class="ayuda">(×${mv.fac})</small>` : ""}</td>` : ""}
+        <td class="num ${cls(mv.valor || 0)}">${mv.valor == null ? "—" : soles(mv.valor)}</td><td>${estadoTag(mv.l)}</td><td><button data-ver="${mv.l.id}">Ver</button></td></tr>`).join("")}
+    </tbody></table></td></tr>` : ""}`;
 }
 function vInventario(m) {
   INV.hasta = INV.hasta || FECHA; INV.desde = INV.desde || addDias(INV.hasta, -6);
-  const D = datosInventario();
-  const tot = sec => D.filter(M => M.seccion === sec);
-  const sum = (arr, f) => arr.reduce((a, M) => a + M[f], 0);
-  const vp = tot("Vacíos"), pp = tot("Productos");
-  const valorFal = r2(D.reduce((a, M) => a + M.movs.reduce((b, mv) => b + (mv.valor != null && mv.valor < 0 ? mv.valor : 0), 0), 0));
-  const fila = M => {
-    const ab = INV.abierto.has(M.seccion + "|" + M.codigo), r = M.seccion === "Productos" ? rubroProd(M.nombre) : null;
-    return `<tr class="click" data-invk="${esc(M.seccion + "|" + M.codigo)}">
-      <td>${ab ? "▾" : "▸"} ${esc(M.seccion)}</td><td>${esc(M.codigo)}</td><td>${esc(M.nombre)}${r ? `<br><small class="ayuda">${esc(r.txt)}</small>` : M.tipo ? `<br><small class="ayuda">${esc(M.tipo)}</small>` : ""}</td>
-      <td class="num pos">${M.sob ? und(M.sob) : "—"}</td><td class="num neg">${M.fal ? und(M.fal) : "—"}</td><td class="num"><b class="${cls(M.neto)}">${und(M.neto)}</b></td>
-      <td class="num">${M.seccion === "Productos" ? `<b class="${cls(M.uNeto)}">${und(M.uNeto)}</b>` : "—"}</td>
-      <td class="num ${cls(M.valor)}">${M.valor || !M.sinValor ? soles(M.valor) : "Sin precio"}${M.sinValor && M.valor ? ` <small class="ayuda">(${M.sinValor} sin precio)</small>` : ""}</td>
-      <td class="num">${M.movs.length}</td></tr>
-      ${ab ? `<tr class="det on"><td colspan="9"><table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Nº viaje</th><th>Tripulación</th><th class="num">Dif. PDF</th><th class="num">ZPD</th><th class="num">Parche</th><th class="num">Final</th>${M.seccion === "Productos" ? `<th class="num">Unidades</th>` : ""}<th class="num">Valor</th><th>Estado</th><th></th></tr></thead><tbody>
-        ${M.movs.sort((a, b) => b.l.fecha.localeCompare(a.l.fecha)).map(mv => `<tr><td>${fmtF(mv.l.fecha)}</td><td><b>${esc(mv.v.placa)}</b>${mv.v.bk ? " — " + esc(mv.v.bk) : ""}${etqViaje(mv.l)}</td><td>${esc(mv.l.pdf.enc.viaje)}</td>
-          <td style="font-size:12px">${mv.trip.map(t => `${esc(t.nombre)} <small class="ayuda">(${esc(t.funcion)}${t.dni ? " · " + esc(t.dni) : ""})</small>`).join("<br>") || "—"}</td>
-          <td class="num">${und(mv.x.difPdf)}</td><td class="num">${mv.x.ajuste ? und(mv.x.ajuste) : "—"}</td><td class="num">${mv.x.parche ? und(mv.x.parche) : "—"}</td>
-          <td class="num"><span class="tag ${cls(mv.x.diferencia)}">${und(mv.x.diferencia)}</span></td>
-          ${M.seccion === "Productos" ? `<td class="num">${und(mv.x.diferencia * mv.fac)}${mv.fac > 1 ? ` <small class="ayuda">(×${mv.fac})</small>` : ""}</td>` : ""}
-          <td class="num ${cls(mv.valor || 0)}">${mv.valor == null ? "—" : soles(mv.valor)}</td><td>${estadoTag(mv.l)}</td><td><button data-ver="${mv.l.id}">Ver</button></td></tr>`).join("")}
-      </tbody></table></td></tr>` : ""}`;
-  };
+  const vac = INV.tab === "vac";
+  let cuerpo = "", kpis = "", excel = null, hayDatos = false;
+  if (vac) {
+    // ---------- VACÍOS: los sobrantes compensan faltantes del mismo grupo (clase de envase y medida)
+    const mats = materialesInventario(["Vacíos"]), G = {};
+    mats.forEach(M => { const g = grupoVacio(M.nombre), X = G[g.clave] = G[g.clave] || { ...g, sob: 0, fal: 0, valor: 0, mats: [], liqs: new Set() };
+      X.sob += M.sob; X.fal += M.fal; X.valor = r2(X.valor + M.valor); X.mats.push(M); M.movs.forEach(mv => X.liqs.add(mv.l.id)); });
+    const grupos = Object.values(G).map(X => ({ ...X, neto: X.sob + X.fal })).filter(X => pasaTipo(X.neto)).sort((a, b) => a.clase.localeCompare(b.clase) || a.neto - b.neto);
+    hayDatos = grupos.length > 0;
+    const todos = Object.values(G).map(X => ({ ...X, neto: X.sob + X.fal }));
+    const netoClase = c => todos.filter(X => X.clase === c).reduce((a, X) => a + X.neto, 0);
+    const valorNeto = r2(todos.reduce((a, X) => a + X.valor, 0));
+    kpis = `<div class="kpi"><span>Botellas (neto)</span><b class="${cls(netoClase("Botella"))}">${und(netoClase("Botella"))}</b></div>
+      <div class="kpi"><span>Cajas (neto)</span><b class="${cls(netoClase("Caja"))}">${und(netoClase("Caja"))}</b></div>
+      <div class="kpi"><span>Grupos con faltante</span><b class="neg">${todos.filter(X => X.neto < 0).length}</b></div>
+      <div class="kpi"><span>Valor neto</span><b class="${cls(valorNeto)}">${soles(valorNeto)}</b></div>`;
+    cuerpo = hayDatos ? `<table><thead><tr><th>Tipo de envase</th><th>Materiales</th><th class="num">Sobrante</th><th class="num">Faltante</th><th class="num">Neto (parchado)</th><th class="num">Valor neto</th><th class="num">Liquid.</th></tr></thead><tbody>
+      ${grupos.map(X => { const k = "G|" + X.clave, ab = INV.abierto.has(k);
+        return `<tr class="click" data-invk="${esc(k)}" style="background:#fafbff"><td><b>${ab ? "▾" : "▸"} ${esc(X.nombre)}</b></td><td style="font-size:12px">${X.mats.map(M => esc(M.codigo)).join(", ")}</td>
+          <td class="num pos">${X.sob ? und(X.sob) : "—"}</td><td class="num neg">${X.fal ? und(X.fal) : "—"}</td><td class="num"><b class="${cls(X.neto)}" style="font-size:15px">${und(X.neto)}</b></td>
+          <td class="num ${cls(X.valor)}"><b>${soles(X.valor)}</b></td><td class="num">${X.liqs.size}</td></tr>
+          ${ab ? `<tr class="det on"><td colspan="7"><table><thead><tr><th>Código</th><th>Descripción</th><th class="num">Sobrante</th><th class="num">Faltante</th><th class="num">Neto</th><th class="num">Valor</th><th class="num">Liquid.</th></tr></thead><tbody>
+            ${X.mats.sort((a, b) => a.neto - b.neto).map(M => filaMaterial(M, true)).join("")}</tbody></table></td></tr>` : ""}`; }).join("")}
+      </tbody></table>` : "";
+    excel = () => {
+      const wb = new ExcelJS.Workbook();
+      hoja(wb, "Vacíos por tipo", ["Tipo de envase", "Materiales", "Sobrante", "Faltante", "Neto (parchado)", "Valor neto S/", "Liquidaciones"],
+        grupos.map(X => [X.nombre, X.mats.map(M => M.codigo + " " + M.nombre).join("; "), X.sob, X.fal, X.neto, X.valor, X.liqs.size]), [5], 4);
+      hoja(wb, "Vacíos por material", ["Tipo de envase", "Código", "Descripción", "Sobrante", "Faltante", "Neto", "Valor S/", "Liquidaciones"],
+        grupos.flatMap(X => X.mats.map(M => [X.nombre, M.codigo, M.nombre, M.sob, M.fal, M.neto, M.valor, M.movs.length])), [6], 5);
+      hoja(wb, "Trazabilidad", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Tripulación", "DNI", "Tipo de envase", "Código", "Descripción", "Dif. PDF", "ZPD", "Final", "Valor S/", "Estado"],
+        grupos.flatMap(X => X.mats.flatMap(M => M.movs.map(mv => [fmtF(mv.l.fecha), mv.v.placa, mv.v.bk, mv.l.pdf.enc.viaje + etqViaje(mv.l), mv.trip.map(t => `${t.nombre} (${t.funcion})`).join(", "), mv.trip.map(t => t.dni).filter(Boolean).join(", "),
+          X.nombre, M.codigo, M.nombre, mv.x.difPdf, mv.x.ajuste || 0, mv.x.diferencia, mv.valor, mv.l.estado === "cerrada" ? "Cerrada" : "En proceso"]))), [12], 11);
+      guardarWb(wb, `inventario_vacios_${INV.desde}_al_${INV.hasta}.xlsx`);
+    };
+  } else {
+    // ---------- PRODUCTOS: cada material por separado (después de ZPD y de los parches de cada liquidación)
+    const D = materialesInventario([INV.seccion]).filter(M => pasaTipo(INV.tipo === "f" ? M.fal : INV.tipo === "s" ? M.sob : M.neto))
+      .sort((a, b) => (a.uNeto - b.uNeto) || a.codigo.localeCompare(b.codigo));
+    hayDatos = D.length > 0;
+    const sum = f => D.reduce((a, M) => a + M[f], 0);
+    const valorFal = r2(D.reduce((a, M) => a + M.movs.reduce((b, mv) => b + (mv.valor != null && mv.valor < 0 ? mv.valor : 0), 0), 0));
+    kpis = `<div class="kpi"><span>Materiales</span><b>${D.length}</b></div>
+      <div class="kpi"><span>Faltante (paquetes)</span><b class="neg">${und(sum("fal"))}</b></div>
+      <div class="kpi"><span>Faltante (unidades)</span><b class="neg">${und(sum("uFal"))}</b></div>
+      <div class="kpi"><span>Sobrante (paquetes)</span><b class="pos">${und(sum("sob"))}</b></div>
+      <div class="kpi"><span>Valor faltante</span><b class="neg">${soles(valorFal)}</b></div>`;
+    cuerpo = hayDatos ? `<table><thead><tr><th>Código</th><th>Descripción</th><th class="num">Sobrante</th><th class="num">Faltante</th><th class="num">Neto</th><th class="num">Unidades</th><th class="num">Valor</th><th class="num">Liquid.</th></tr></thead><tbody>
+      ${D.map(M => filaMaterial(M, false)).join("")}</tbody></table>` : "";
+    excel = () => {
+      const wb = new ExcelJS.Workbook();
+      hoja(wb, "Productos", ["Código", "Descripción", "Rubro / gramaje", "Sobrante", "Faltante", "Neto", "Unidades netas", "Valor S/", "Liquidaciones"],
+        D.map(M => [M.codigo, M.nombre, (rubroProd(M.nombre) || {}).txt || "", M.sob, M.fal, M.neto, M.uNeto, M.valor, M.movs.length]), [7], 5);
+      hoja(wb, "Trazabilidad", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Tripulación", "DNI", "Código", "Descripción", "Dif. PDF", "ZPD", "Parche", "Final", "Unidades", "Valor S/", "Estado"],
+        D.flatMap(M => M.movs.map(mv => [fmtF(mv.l.fecha), mv.v.placa, mv.v.bk, mv.l.pdf.enc.viaje + etqViaje(mv.l), mv.trip.map(t => `${t.nombre} (${t.funcion})`).join(", "), mv.trip.map(t => t.dni).filter(Boolean).join(", "),
+          M.codigo, M.nombre, mv.x.difPdf, mv.x.ajuste || 0, mv.x.parche || 0, mv.x.diferencia, M.seccion === "Productos" ? mv.x.diferencia * mv.fac : "", mv.valor, mv.l.estado === "cerrada" ? "Cerrada" : "En proceso"])), [13], 11);
+      guardarWb(wb, `inventario_${INV.seccion.toLowerCase()}_${INV.desde}_al_${INV.hasta}.xlsx`);
+    };
+  }
   m.innerHTML = `
+    <div class="tabs"><div class="seg"><button data-itab="vac" class="${vac ? "on" : ""}">🍾 Vacíos</button><button data-itab="prod" class="${vac ? "" : "on"}">🍺 Productos</button></div></div>
     <div class="card"><div class="row">
       <label class="f">Desde<input type="date" id="iD" value="${INV.desde}"></label>
       <label class="f">Hasta<input type="date" id="iH" value="${INV.hasta}"></label>
-      <label class="f">Sección<select id="iS"><option value="">Todas</option>${["Productos", "Vacíos", "Bloqueados", "Activos"].map(x => `<option ${INV.seccion === x ? "selected" : ""}>${x}</option>`).join("")}</select></label>
-      <label class="f">Mostrar<select id="iT"><option value="f" ${INV.tipo === "f" ? "selected" : ""}>Solo con faltante</option><option value="s" ${INV.tipo === "s" ? "selected" : ""}>Solo con sobrante</option><option value="" ${!INV.tipo ? "selected" : ""}>Faltantes y sobrantes</option></select></label>
+      ${vac ? "" : `<label class="f">Sección<select id="iS">${["Productos", "Bloqueados", "Activos"].map(x => `<option ${INV.seccion === x ? "selected" : ""}>${x}</option>`).join("")}</select></label>`}
+      <label class="f">Mostrar<select id="iT"><option value="f" ${INV.tipo === "f" ? "selected" : ""}>${vac ? "Solo con faltante neto" : "Solo con faltante"}</option><option value="s" ${INV.tipo === "s" ? "selected" : ""}>${vac ? "Solo con sobrante neto" : "Solo con sobrante"}</option><option value="" ${!INV.tipo ? "selected" : ""}>Todos</option></select></label>
       <label class="f">Liquidaciones<select id="iE"><option value="">Todas</option><option value="c" ${INV.estado === "c" ? "selected" : ""}>Solo cerradas</option><option value="e" ${INV.estado === "e" ? "selected" : ""}>Solo en proceso</option></select></label>
-      <label class="f grow">Buscar (producto, código, placa, BK, viaje, nombre o DNI)<input id="iQ" value="${esc(INV.q)}" placeholder="Ej. 14259, PILSEN 473, BMX-740, Guillermo"></label>
-      <button class="primary" id="iExcel" ${D.length ? "" : "disabled"}>Exportar Excel</button>
-    </div><p class="ayuda" style="margin:8px 0 0">Diferencias <b>netas</b> de cada material: lo que queda después de los ajustes ZPD7/ZPD4 y de los parches entre productos del mismo rubro y gramaje. Las líneas que quedaron en 0 no se cuentan. Haz clic en un material para ver en qué liquidaciones y con qué tripulación se produjo.</p></div>
-    <div class="kpis">
-      <div class="kpi"><span>Materiales</span><b>${D.length}</b></div>
-      <div class="kpi"><span>Productos faltantes (paquetes)</span><b class="neg">${und(sum(pp, "fal"))}</b></div>
-      <div class="kpi"><span>Productos faltantes (unidades)</span><b class="neg">${und(sum(pp, "uFal"))}</b></div>
-      <div class="kpi"><span>Vacíos faltantes</span><b class="neg">${und(sum(vp, "fal"))}</b></div>
-      <div class="kpi"><span>Valor faltante</span><b class="neg">${soles(valorFal)}</b></div>
-    </div>
-    <div class="card scroll">${D.length ? `<table><thead><tr><th>Sección</th><th>Código</th><th>Descripción</th><th class="num">Sobrante</th><th class="num">Faltante</th><th class="num">Neto</th><th class="num">Unidades</th><th class="num">Valor</th><th class="num">Liquid.</th></tr></thead><tbody>
-      ${D.map(fila).join("")}</tbody></table>` : `<div class="vacio">No hay ${INV.tipo === "f" ? "faltantes" : INV.tipo === "s" ? "sobrantes" : "diferencias"} netos en este rango.</div>`}</div>`;
+      <label class="f grow">Buscar (${vac ? "envase" : "producto"}, código, placa, BK, viaje, nombre o DNI)<input id="iQ" value="${esc(INV.q)}" placeholder="${vac ? "Ej. 630ML, 3500323, BMX-740" : "Ej. 14259, PILSEN 473, BMX-740"}"></label>
+      <button class="primary" id="iExcel" ${hayDatos ? "" : "disabled"}>Exportar Excel</button>
+    </div><p class="ayuda" style="margin:8px 0 0">${vac
+      ? "Vacíos <b>parchados</b>: los sobrantes compensan los faltantes del mismo tipo de envase y medida (por ejemplo, botellas de 620, 630 y 650 ml entre sí; botellas de 1 litro entre sí; cajas ×12 de esas botellas entre sí). El neto es lo que realmente falta o sobra. Haz clic en un tipo para ver sus materiales y en un material para ver en qué liquidaciones se produjo."
+      : "Productos por material, sin mezclar con vacíos: lo que queda después de los ajustes ZPD7/ZPD4 y de los parches entre productos del mismo rubro y gramaje de cada liquidación. Haz clic en un material para ver en qué liquidaciones y con qué tripulación se produjo."}</p></div>
+    <div class="kpis">${kpis}</div>
+    <div class="card scroll">${cuerpo || `<div class="vacio">No hay ${INV.tipo === "f" ? "faltantes" : INV.tipo === "s" ? "sobrantes" : "diferencias"} en este rango.</div>`}</div>`;
+  m.querySelectorAll("[data-itab]").forEach(b => b.onclick = () => { INV.tab = b.dataset.itab; render(); });
   $("iD").onchange = e => { INV.desde = e.target.value; render(); };
   $("iH").onchange = e => { INV.hasta = e.target.value; render(); };
-  $("iS").onchange = e => { INV.seccion = e.target.value; render(); };
+  if ($("iS")) $("iS").onchange = e => { INV.seccion = e.target.value; render(); };
   $("iT").onchange = e => { INV.tipo = e.target.value; render(); };
   $("iE").onchange = e => { INV.estado = e.target.value; render(); };
   const q = $("iQ");
   q.oninput = () => { INV.q = q.value; clearTimeout(q._t); q._t = setTimeout(() => { const pos = q.selectionStart; render(); const n = $("iQ"); n.focus(); n.setSelectionRange(pos, pos); }, 300); };
-  m.querySelectorAll("[data-invk]").forEach(tr => tr.onclick = e => { if (e.target.closest("button")) return; const k = tr.dataset.invk; INV.abierto.has(k) ? INV.abierto.delete(k) : INV.abierto.add(k); render(); });
+  m.querySelectorAll("[data-invk]").forEach(tr => tr.onclick = e => { if (e.target.closest("button")) return; e.stopPropagation(); const k = tr.dataset.invk; INV.abierto.has(k) ? INV.abierto.delete(k) : INV.abierto.add(k); render(); });
   m.querySelectorAll("[data-ver]").forEach(b => b.onclick = e => { e.stopPropagation(); abrirLiqId(b.dataset.ver); });
-  $("iExcel").onclick = () => {
-    if (typeof ExcelJS === "undefined") return toast("No se pudo cargar la librería de Excel (revisa tu internet).");
-    const wb = new ExcelJS.Workbook();
-    hoja(wb, "Inventario", ["Sección", "Código", "Descripción", "Rubro / gramaje", "Sobrante", "Faltante", "Neto", "Unidades netas", "Valor S/", "Liquidaciones"],
-      D.map(M => [M.seccion, M.codigo, M.nombre, M.seccion === "Productos" ? (rubroProd(M.nombre) || {}).txt || "" : M.tipo || "", M.sob, M.fal, M.neto, M.seccion === "Productos" ? M.uNeto : "", M.valor, M.movs.length]), [8], 6);
-    hoja(wb, "Trazabilidad", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Tripulación", "DNI", "Sección", "Código", "Descripción", "Dif. PDF", "ZPD", "Parche", "Final", "Unidades", "Valor S/", "Estado"],
-      D.flatMap(M => M.movs.map(mv => [fmtF(mv.l.fecha), mv.v.placa, mv.v.bk, mv.l.pdf.enc.viaje + etqViaje(mv.l), mv.trip.map(t => `${t.nombre} (${t.funcion})`).join(", "), mv.trip.map(t => t.dni).filter(Boolean).join(", "),
-        M.seccion, M.codigo, M.nombre, mv.x.difPdf, mv.x.ajuste || 0, mv.x.parche || 0, mv.x.diferencia, M.seccion === "Productos" ? mv.x.diferencia * mv.fac : "", mv.valor, mv.l.estado === "cerrada" ? "Cerrada" : "En proceso"])), [14], 12);
-    guardarWb(wb, `inventario_${INV.desde}_al_${INV.hasta}.xlsx`);
-  };
+  $("iExcel").onclick = () => { if (typeof ExcelJS === "undefined") return toast("No se pudo cargar la librería de Excel (revisa tu internet)."); excel(); };
 }
 
 // =====================================================================
