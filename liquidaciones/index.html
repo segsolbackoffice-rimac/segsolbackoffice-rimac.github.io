@@ -532,6 +532,16 @@ function mapaAjustes(l) {
   (l.ajustes || []).forEach(a => { if (a.codigo === "ZPD7" || a.codigo === "ZPD4") m[a.mat] = (m[a.mat] || 0) + (a.codigo === "ZPD7" ? a.cantidad : -a.cantidad); });
   return m;
 }
+// unidades por paquete de un producto: la que se escribió en la liquidación, la última usada para ese código, o 1
+function factorProd(l, ln) {
+  const f = (l.factorProd || {})[ln.codigo] ?? (S.factorProd || {})[ln.codigo];
+  return f > 0 ? +f : 1;
+}
+// sugerencia según el nombre: "6X1" / "6Px1" → 6, "RT 12" → 12
+function factorSugerido(nombre) {
+  const n = String(nombre).toUpperCase(), m = n.match(/\b(\d{1,2})\s*P?\s*X\s*1\b/) || n.match(/\bRT\s+(\d{1,2})\b/) || n.match(/\bX\s*(\d{1,2})\b/);
+  return m && +m[1] > 1 ? +m[1] : null;
+}
 function calcBase(l) {
   const P = l.estado === "cerrada" && l.precios ? l.precios : S.precios;
   const r = { lineas: [], bot: 0, caj: 0, prod: 0, sobr: 0, falt: 0, prodMonto: 0, prodSinPrecio: 0 };
@@ -549,7 +559,8 @@ function calcBase(l) {
       r.prod += ln.diferencia;
       if (l.incluirProductos) {
         const pr = (l.preciosProd || {})[ln.codigo];
-        if (pr != null && pr !== "") { x.precio = +pr; x.dinero = r2(ln.diferencia * pr); if (x.dinero > 0) r.sobr += x.dinero; else r.falt += x.dinero; r.prodMonto += x.dinero; }
+        x.factor = factorProd(l, ln); x.unidades = ln.diferencia * x.factor;
+        if (pr != null && pr !== "") { x.precio = +pr; x.dinero = r2(x.unidades * pr); if (x.dinero > 0) r.sobr += x.dinero; else r.falt += x.dinero; r.prodMonto += x.dinero; }
         else r.prodSinPrecio++;
       }
     }
@@ -904,15 +915,20 @@ function tablaSeccion(nombre, existe, lineas, modo, l) {
   }
   if (!ls.length) return `<h3>${nombre} ${tag}</h3>`;
   const conDinero = modo === "vacios" || (modo === "productos" && l.incluirProductos);
+  const prod = modo === "productos" && l.incluirProductos, editable = l.estado !== "cerrada";
   return `<h3>${nombre} ${tag}${extra}</h3><div class="scroll card" style="padding:0"><table><thead><tr>
     <th>Código</th><th>Descripción</th><th class="num">Conductor</th><th class="num">Sistema</th><th class="num">Diferencia</th>
-    ${conDinero ? `<th>Tipo</th><th class="num">Precio</th><th class="num">Dinero</th>` : ""}</tr></thead><tbody>
+    ${prod ? `<th class="num">Unid. por paquete</th><th class="num">Unidades</th><th class="num">Precio x unidad</th><th class="num">Dinero</th>`
+      : conDinero ? `<th>Tipo</th><th class="num">Precio</th><th class="num">Dinero</th>` : ""}</tr></thead><tbody>
     ${ls.map(x => `<tr><td>${esc(x.codigo)}</td><td>${esc(x.nombre)}</td><td class="num">${x.conductor}</td><td class="num">${x.sistema}</td>
       <td class="num"><span class="tag ${cls(x.diferencia)}">${und(x.diferencia)}</span>${x.ajuste ? `<br><small class="ayuda" style="white-space:nowrap">PDF ${und(x.difPdf)} · ZPD ${und(x.ajuste)}</small>` : ""}</td>
-      ${conDinero ? `<td>${esc(x.tipo || (modo === "productos" ? "Producto" : ""))}</td>
-        <td class="num">${modo === "productos" && l.estado !== "cerrada"
-          ? `<input class="precio" type="number" step="0.01" min="0" data-cod="${esc(x.codigo)}" value="${x.precio ?? ""}" placeholder="S/">`
-          : (x.precio == null ? "—" : x.precio.toFixed(2))}</td>
+      ${prod ? `<td class="num">${editable ? `<input class="precio" type="number" step="1" min="1" data-fac="${esc(x.codigo)}" value="${x.factor}" title="Ej. six pack = 6">`
+          + (factorSugerido(x.nombre) && factorSugerido(x.nombre) !== x.factor ? `<br><a href="#" data-sugf="${esc(x.codigo)}|${factorSugerido(x.nombre)}" style="font-size:11px">usar ${factorSugerido(x.nombre)}</a>` : "") : x.factor}</td>
+        <td class="num"><b class="${cls(x.unidades)}">${und(x.unidades)}</b></td>
+        <td class="num">${editable ? `<input class="precio" type="number" step="0.01" min="0" data-cod="${esc(x.codigo)}" value="${x.precio ?? ""}" placeholder="S/">` : (x.precio == null ? "—" : x.precio.toFixed(2))}</td>
+        <td class="num ${cls(x.dinero || 0)}">${x.dinero == null ? "Sin precio" : soles(x.dinero)}</td>`
+      : conDinero ? `<td>${esc(x.tipo || (modo === "productos" ? "Producto" : ""))}</td>
+        <td class="num">${x.precio == null ? "—" : x.precio.toFixed(2)}</td>
         <td class="num ${cls(x.dinero || 0)}">${x.dinero == null ? "Sin precio" : soles(x.dinero)}</td>` : ""}
     </tr>`).join("")}</tbody></table></div>`;
 }
@@ -955,6 +971,7 @@ function pintarPanel() {
       <div class="kpi"><span>Neto</span><b class="${cls(c.neto)}">${soles(c.neto)}</b></div>
     </div>
     ${tablaSeccion("Productos", secs.has("Productos"), c.lineas, "productos", l)}
+    ${l.incluirProductos && c.lineas.some(x => x.seccion === "Productos") ? `<p class="ayuda" style="margin:4px 0 0">La diferencia del PDF viene en paquetes. Indica cuántas unidades trae cada paquete (six pack = 6) y el precio por unidad: Unidades = diferencia × unidades por paquete.</p>` : ""}
     ${l.incluirProductos && c.prodSinPrecio ? `<p class="ayuda m-warn">Hay ${c.prodSinPrecio} producto(s) sin precio: no suman al cobro hasta que les pongas precio.</p>` : ""}
     ${tablaSeccion("Bloqueados", secs.has("Bloqueados"), c.lineas, "otros", l)}
     ${tablaSeccion("Vacíos", secs.has("Vacíos"), c.lineas, "vacios", l)}
@@ -979,7 +996,14 @@ function pintarPanel() {
   if (pc) pc.onclick = ev => { ev.preventDefault(); FECHA_PDF(l); $("filePdf").dataset.veh = l.vehId; $("filePdf").dataset.n = nv(l); $("filePdf").click(); };
   const chk = $("chkProd");
   if (chk) chk.onchange = () => { l.incluirProductos = chk.checked; guardar(); pintarPanel(); render(); };
-  $("hoja").querySelectorAll("input.precio").forEach(inp => inp.onchange = () => {
+  const setFactor = (cod, v) => {
+    l.factorProd = l.factorProd || {}; S.factorProd = S.factorProd || {};
+    if (!(v >= 1)) { delete l.factorProd[cod]; } else { l.factorProd[cod] = Math.round(v); S.factorProd[cod] = Math.round(v); }
+    guardar(); pintarPanel(); render();
+  };
+  $("hoja").querySelectorAll("input[data-fac]").forEach(inp => inp.onchange = () => setFactor(inp.dataset.fac, +inp.value));
+  $("hoja").querySelectorAll("[data-sugf]").forEach(a => a.onclick = e => { e.preventDefault(); const [cod, v] = a.dataset.sugf.split("|"); setFactor(cod, +v); });
+  $("hoja").querySelectorAll("input.precio[data-cod]").forEach(inp => inp.onchange = () => {
     const val = inp.value === "" ? null : Math.max(0, +inp.value);
     l.preciosProd = l.preciosProd || {};
     if (val == null) delete l.preciosProd[inp.dataset.cod]; else { l.preciosProd[inp.dataset.cod] = val; S.preciosProd[inp.dataset.cod] = val; }
