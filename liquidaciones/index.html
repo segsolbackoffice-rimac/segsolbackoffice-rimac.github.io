@@ -716,8 +716,19 @@ function calc(l) {
   r.aCobrar = r2(Math.max(0, r.aCobrarBase - r.credito));
   r.pendiente = r2(r.aCobrar - r.cubierto);
   r.fuente = l.pdf ? (libro().fuentes[l.id] || null) : null;
+  // cuánto se debe por vacíos y por productos, y cuánto se cubrió de cada uno
+  let cred = r.credito;
+  const deuda = { vac: Math.max(0, -r.vac.neto), liq: Math.max(0, -r.liq.neto) };
+  ["vac", "liq"].forEach(k => { const u = Math.min(cred, deuda[k]); deuda[k] -= u; cred -= u; });   // el saldo a favor cubre primero vacíos
+  const exceso = Math.max(0, deuda.vac + deuda.liq - r.aCobrar);                                         // sobrante de un rubro que compensa al otro
+  if (exceso) { const t = deuda.vac + deuda.liq; deuda.vac -= exceso * deuda.vac / t; deuda.liq -= exceso * deuda.liq / t; }
+  const cob = l.cobros || [];
+  r.rub = {};
+  ["vac", "liq"].forEach(k => { const cub = r2(cob.filter(x => x.rubro === k).reduce((a, x) => a + x.monto, 0));
+    r.rub[k] = { deuda: r2(deuda[k]), cubierto: cub, pend: r2(Math.min(Math.max(0, deuda[k] - cub), Math.max(0, r.pendiente))) }; });
   return r;
 }
+const RUBROS = { vac: "Vacíos", liq: "Productos" };
 
 function estadoTag(l) {
   if (!l || !l.pdf) return `<span class="tag ok">Pendiente</span>`;
@@ -1226,7 +1237,7 @@ function seccionCobro(l, c, trip) {
   const filas = (l.cobros || []).map(x => `<tr>
       <td><span class="tag ${x.tipo === "pago" ? "pos" : "neg"}">${x.tipo === "pago" ? "Pago" : "Descuento"}</span></td>
       <td>${esc(x.nombre)}${x.dni ? `<br><small class="ayuda">DNI ${esc(x.dni)}</small>` : ""}</td>
-      <td>${x.motivo === "correo" ? `<span class="tag azul">✉ Por correo</span> ` : ""}${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? ` · Op. ${esc(x.operacion)}` : "") + `${x.recibe ? ` · Recibió: ${esc(x.recibe)}` : ""}` : esc({ persona: "Tripulante", tripulacion: "Toda la tripulación (partes iguales)", otro: "Otra persona" }[x.modo] || "")}</td>
+      <td>${x.rubro ? `<span class="tag ${x.rubro === "vac" ? "azul" : "warn"}">${RUBROS[x.rubro]}</span> ` : ""}${x.motivo === "correo" ? `<span class="tag azul">✉ Por correo</span> ` : ""}${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? ` · Op. ${esc(x.operacion)}` : "") + `${x.recibe ? ` · Recibió: ${esc(x.recibe)}` : ""}` : esc({ persona: "Tripulante", tripulacion: "Toda la tripulación (partes iguales)", otro: "Otra persona" }[x.modo] || "")}</td>
       <td class="num"><b>${soles(x.monto, false)}</b></td>
       <td>${cerrada ? "" : `<button class="x" data-delcob="${x.id}" title="Quitar">✕</button>`}</td></tr>`).join("");
   const opcTrip = trip.map(t => `<option value="${esc(t.personaId)}">${esc(t.nombre)} (${esc(t.funcion)})</option>`).join("");
@@ -1234,7 +1245,9 @@ function seccionCobro(l, c, trip) {
 
   let form = "";
   if (!cerrada && c.pendiente > 0) {
-    const montoDef = c.pendiente.toFixed(2);
+    const rubDef = FORM.rubro || (c.rub.vac.pend > 0 ? "vac" : c.rub.liq.pend > 0 ? "liq" : "vac");
+    const montoDef = (c.rub[rubDef].pend > 0 ? Math.min(c.rub[rubDef].pend, c.pendiente) : c.pendiente).toFixed(2);
+    const selRubro = `<label class="f">Corresponde a<select id="cRubro">${["vac", "liq"].map(k => `<option value="${k}" ${k === rubDef ? "selected" : ""}>${RUBROS[k]}${c.rub[k].pend > 0 ? ` (falta ${soles(c.rub[k].pend, false)})` : ""}</option>`).join("")}</select></label>`;
     form = `<div class="cobro-form">
       <div class="row" style="margin-bottom:10px">
         <div class="seg"><button data-tipo="pago" class="${FORM.tipo === "pago" ? "on" : ""}">💵 Registrar pago</button><button data-tipo="descuento" class="${FORM.tipo === "descuento" ? "on" : ""}">📉 Enviar a descuento</button><button data-tipo="neteo" class="${FORM.tipo === "neteo" ? "on" : ""}">🔄 Neteo</button></div>
@@ -1245,6 +1258,7 @@ function seccionCobro(l, c, trip) {
           <select id="cPersona">${opcTrip ? `<option value="" selected>— Elige un tripulante —</option>${opcTrip}` : `<option value="">— Este vehículo no tiene tripulación asignada —</option>`}</select></label>
         <label class="f" id="cOtroWrap" style="display:none">Nombre<input id="cOtroNombre" placeholder="Nombre completo"></label>
         <label class="f" id="cOtroDniWrap" style="display:none">DNI<input id="cOtroDni" placeholder="DNI" inputmode="numeric"></label>
+        ${selRubro}
         <label class="f">Medio<select id="cMedio">${MEDIOS.map(x => `<option>${x}</option>`).join("")}</select></label>
         <label class="f">Nº operación<input id="cOp" placeholder="Opcional" style="width:120px"></label>
         <label class="f">Responsable que recibe el dinero<input id="cRecibe" list="dlRecibe" value="${esc(S.ultimoReceptor || "")}" placeholder="Nombre de quien recibe" style="width:200px"></label>
@@ -1264,6 +1278,7 @@ function seccionCobro(l, c, trip) {
           <label class="f" id="cOtroWrap" style="display:none">Nombre<input id="cOtroNombre" placeholder="Nombre completo"></label>
           <label class="f" id="cOtroDniWrap" style="display:none">DNI<input id="cOtroDni" placeholder="DNI" inputmode="numeric"></label>` : ""}
         ${FORM.modo === "tripulacion" ? `<div class="grow ayuda" style="margin:0 0 8px">Se dividirá entre ${trip.length} persona(s): ${trip.map(t => esc(t.nombre)).join(", ")}.</div>` : ""}
+        ${selRubro}
         <label class="f">Motivo<select id="cMotivo"><option value="faltante">Faltante de la liquidación</option><option value="correo">✉ Por correo (regularizar por correo)</option></select></label>
         <label class="f">Monto (S/)<input id="cMonto" type="number" step="0.01" min="0.01" value="${montoDef}" style="width:110px"></label>
         <button class="primary" id="cAgregar">Agregar descuento</button>
@@ -1280,6 +1295,8 @@ function seccionCobro(l, c, trip) {
       <div>Pagado<br><b class="pos">${soles(c.pagado, false)}</b></div>
       <div>Descuento<br><b class="neg">${soles(c.descontado, false)}</b></div>
       <div>Pendiente<br><b class="${c.pendiente > 0 ? "neg" : "pos"}">${soles(Math.max(c.pendiente, 0), false)}</b></div>
+      ${c.rub.vac.deuda || c.rub.liq.deuda || c.rub.vac.cubierto || c.rub.liq.cubierto ? `<div style="font-size:12.5px;line-height:1.6">${["vac", "liq"].filter(k => c.rub[k].deuda || c.rub[k].cubierto).map(k =>
+        `<b>${RUBROS[k]}:</b> a cobrar ${soles(c.rub[k].deuda, false)} · cubierto ${soles(c.rub[k].cubierto, false)} · <span class="${c.rub[k].pend > 0 ? "neg" : "pos"}">falta ${soles(c.rub[k].pend, false)}</span>`).join("<br>")}</div>` : ""}
       <div style="margin-left:auto" class="row">
         ${cerrada ? `<span class="ayuda" style="margin:0">Cerrada el ${new Date(l.cerradaEn).toLocaleString("es-PE")}</span><button id="cReabrir">Reabrir</button>`
           : `<button class="ok" id="cCerrarLiq" ${c.pendiente === 0 ? "" : "disabled"} title="${c.pendiente > 0 ? "Falta cubrir el monto pendiente con pagos o descuentos" : ""}">✔ Cerrar liquidación</button>`}
@@ -1388,6 +1405,8 @@ function enlazarCobro(l, c, trip) {
       guardar(); pintarPanel(); render(); toast(`Neteo de ${soles(monto, false)} registrado como saldo a favor de ${p.nombre}.`);
     };
   }
+  const cr = $("cRubro");
+  if (cr) cr.onchange = () => { FORM.rubro = cr.value; const p = c.rub[cr.value].pend; $("cMonto").value = (p > 0 ? Math.min(p, c.pendiente) : c.pendiente).toFixed(2); };
   const add = $("cAgregar");
   if (add) add.onclick = () => {
     const err = t => { $("cErr").textContent = t; };
@@ -1407,17 +1426,18 @@ function enlazarCobro(l, c, trip) {
       const recibe = $("cRecibe").value.trim().toUpperCase();
       if (!recibe) return err("Indica el responsable que recibe el dinero.");
       S.ultimoReceptor = recibe; S.receptores = [...new Set([recibe, ...(S.receptores || [])])].slice(0, 30);
-      l.cobros.push({ id: uid(), tipo: "pago", ...q, medio: $("cMedio").value, operacion: $("cOp").value.trim(), recibe, monto, modo: "persona", fecha: new Date().toISOString() });
+      l.cobros.push({ id: uid(), tipo: "pago", rubro: $("cRubro").value, ...q, medio: $("cMedio").value, operacion: $("cOp").value.trim(), recibe, monto, modo: "persona", fecha: new Date().toISOString() });
     } else if (FORM.modo === "tripulacion") {
       if (!trip.length) return err("No hay tripulación asignada.");
       const cent = Math.round(monto * 100), base = Math.floor(cent / trip.length), resto = cent - base * trip.length, grupo = uid();
       const motivo = $("cMotivo").value;
-      trip.forEach((t, i) => l.cobros.push({ id: uid(), tipo: "descuento", personaId: t.personaId, nombre: t.nombre, dni: t.dni || "", monto: (base + (i < resto ? 1 : 0)) / 100, modo: "tripulacion", grupo, motivo, fecha: new Date().toISOString() }));
+      const rubro = $("cRubro").value;
+      trip.forEach((t, i) => l.cobros.push({ id: uid(), tipo: "descuento", rubro, personaId: t.personaId, nombre: t.nombre, dni: t.dni || "", monto: (base + (i < resto ? 1 : 0)) / 100, modo: "tripulacion", grupo, motivo, fecha: new Date().toISOString() }));
       if (motivo === "correo") correoPorDescuento(l, monto, "Toda la tripulación (partes iguales)");
     } else {
       const q = quien(); if (!q) return err("Indica a quién se le descuenta.");
       const motivo = $("cMotivo").value;
-      l.cobros.push({ id: uid(), tipo: "descuento", ...q, monto, modo: FORM.modo, motivo, fecha: new Date().toISOString() });
+      l.cobros.push({ id: uid(), tipo: "descuento", rubro: $("cRubro").value, ...q, monto, modo: FORM.modo, motivo, fecha: new Date().toISOString() });
       if (motivo === "correo") correoPorDescuento(l, monto, q.nombre);
     }
     guardar(); pintarPanel(); render();
@@ -1512,6 +1532,11 @@ function vReporte(m) {
       <div class="card" style="grid-column:1/-1"><h2>Dinero recibido por responsable</h2>${Object.keys(porRecibe).length ? `<table><thead><tr><th>Responsable</th><th class="num">Pagos</th><th>Por medio</th><th class="num">Total recibido</th></tr></thead><tbody>
         ${Object.entries(porRecibe).sort((a, b) => b[1].total - a[1].total).map(([k, r]) => `<tr><td><b>${esc(k)}</b></td><td class="num">${r.n}</td><td style="font-size:12.5px">${Object.entries(r.medios).map(([mm, v]) => esc(mm) + " " + soles(v, false)).join(" · ")}</td><td class="num pos"><b>${soles(r.total, false)}</b></td></tr>`).join("")}
         <tr><td colspan="3"><b>Total</b></td><td class="num"><b>${soles(r2(pg), false)}</b></td></tr></tbody></table>` : `<div class="vacio">Sin pagos.</div>`}</div>
+      <div class="card"><h2>Pagos y descuentos por rubro</h2>${(() => { const t = { vac: [0, 0], liq: [0, 0], "": [0, 0] };
+        ls.forEach(l => (l.cobros || []).forEach(x => { const k = x.rubro || ""; t[k][x.tipo === "pago" ? 0 : 1] = r2(t[k][x.tipo === "pago" ? 0 : 1] + x.monto); }));
+        return `<table><thead><tr><th>Corresponde a</th><th class="num">Pagado</th><th class="num">Descontado</th></tr></thead><tbody>
+          ${[["vac", "🍾 Vacíos"], ["liq", "🍺 Productos"], ["", "Sin especificar"]].filter(([k]) => k || t[""][0] || t[""][1]).map(([k, n]) => `<tr><td>${n}</td><td class="num pos">${soles(t[k][0], false)}</td><td class="num neg">${soles(t[k][1], false)}</td></tr>`).join("")}
+          </tbody></table>`; })()}</div>
       <div class="card"><h2>Pagos por medio</h2>${Object.keys(porMedio).length ? `<table><thead><tr><th>Medio</th><th class="num">Monto</th></tr></thead><tbody>
         ${Object.entries(porMedio).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${soles(v, false)}</td></tr>`).join("")}
         <tr><td><b>Total</b></td><td class="num"><b>${soles(r2(pg), false)}</b></td></tr></tbody></table>` : `<div class="vacio">Sin pagos.</div>`}</div>
@@ -2281,8 +2306,8 @@ function filasCobros(ls, tipo) {
   const out = [];
   ls.forEach(l => { const v = vehiculo(l.vehId) || {};
     (l.cobros || []).filter(c => c.tipo === tipo).forEach(c => out.push(tipo === "pago"
-      ? [fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, c.nombre, c.dni, c.medio, c.operacion || "", c.recibe || "", c.monto]
-      : [fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, c.nombre, c.dni, c.modo === "tripulacion" ? "Partes iguales (tripulación)" : c.modo === "otro" ? "Otra persona" : "Tripulante", c.monto])); });
+      ? [fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, c.nombre, c.dni, c.medio, c.operacion || "", c.recibe || "", c.monto, RUBROS[c.rubro] || ""]
+      : [fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, c.nombre, c.dni, c.modo === "tripulacion" ? "Partes iguales (tripulación)" : c.modo === "otro" ? "Otra persona" : "Tripulante", c.monto, RUBROS[c.rubro] || ""])); });
   return out;
 }
 function filasDif(items) {
@@ -2312,13 +2337,13 @@ function exportarReporte(ls, desde, hasta) {
   wcaja.orderNo = -2;
   hoja(wb, "Liquidaciones", COLS_LIQ, filasLiq(ls), [11, 12, 13, 14, 15, 16, 17, 18, 19, 23, 24, 25, 26, 27, 28], 13);
   const filasPago = filasCobros(ls, "pago");
-  hoja(wb, "Pagos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Pagó", "DNI", "Medio", "Nº operación", "Recibió", "Monto S/"], filasPago, [9]);
+  hoja(wb, "Pagos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Pagó", "DNI", "Medio", "Nº operación", "Recibió", "Monto S/", "Corresponde a"], filasPago, [9]);
   const resp = {}; filasPago.forEach(r => { const k = r[8] || "(sin registrar)", o = resp[k] = resp[k] || { n: 0, t: 0, m: {} }; o.n++; o.t = r2(o.t + r[9]); o.m[r[6]] = r2((o.m[r[6]] || 0) + r[9]); });
   const filasResp = Object.entries(resp).map(([k, o]) => [k, o.n, ...MEDIOS.map(mm => o.m[mm] || 0), o.t]);
   filasResp.push(["TOTAL", filasResp.reduce((a, r) => a + r[1], 0), ...MEDIOS.map((_, i) => r2(filasResp.reduce((a, r) => a + r[2 + i], 0))), r2(filasResp.reduce((a, r) => a + r[2 + MEDIOS.length], 0))]);
   const wresp = hoja(wb, "Por responsable", ["Responsable que recibe", "Pagos", ...MEDIOS.map(mm => mm + " S/"), "Total recibido S/"], filasResp, [...MEDIOS.map((_, i) => 2 + i), 2 + MEDIOS.length]);
   wresp.lastRow.font = { bold: true };
-  hoja(wb, "Descuentos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Persona", "DNI", "Tipo", "Monto S/"], filasCobros(ls, "descuento"), [7]);
+  hoja(wb, "Descuentos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Persona", "DNI", "Tipo", "Monto S/", "Corresponde a"], filasCobros(ls, "descuento"), [7]);
   const col = {};
   ls.forEach(l => (l.cobros || []).forEach(x => { const k = (x.dni || "") + "|" + x.nombre; const p = col[k] = col[k] || [x.nombre, x.dni, 0, 0, 0];
     if (x.tipo === "pago") p[2] = r2(p[2] + x.monto); else p[3] = r2(p[3] + x.monto); p[4] = r2(p[2] + p[3]); }));
