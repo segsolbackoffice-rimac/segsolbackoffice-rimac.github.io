@@ -46,7 +46,7 @@
   .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
   .grow{flex:1}
-  label.f{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--muted);font-weight:500}
+  label.f,div.f{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--muted);font-weight:500}
   input,select,textarea{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink)}
   textarea{width:100%;min-height:90px}
   button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 13px;cursor:pointer;font-weight:500;color:var(--ink)}
@@ -141,6 +141,12 @@
   .veh .vf{gap:8px}
   #elige{z-index:50;padding-top:12vh}
   input.precio{width:80px;text-align:right;padding:4px 6px}
+  .bus-res{border:1px solid var(--line);border-radius:8px;max-height:240px;overflow:auto;margin-top:4px;background:#fff}
+  .bus-res:empty{display:none}
+  .bus-res div{padding:6px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line)}
+  .bus-res div:hover{background:var(--soft)}
+  .bus-sel{margin-top:6px;font-size:13px}
+  table.cat input{padding:4px 6px}
 </style>
 </head>
 <body>
@@ -152,6 +158,7 @@
   <button data-v="inventario">📦 Inventario</button>
   <button data-v="traza">🔎 Trazabilidad</button>
   <div class="sec">Datos</div>
+  <button data-v="productos">🏷️ Productos</button>
   <button data-v="tripulacion">🚚 Tripulación del día</button>
   <button data-v="personal">👥 Personal</button>
   <button data-v="vehiculos">🚛 Vehículos</button>
@@ -388,7 +395,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs
 const KEY = "segsol_liquidaciones_v2";
 const FUNCIONES = ["CHOFER", "REPARTO", "AUXILIAR", "AUXILIAR APOYO"];
 const MEDIOS = ["Efectivo", "Yape", "Plin", "Transferencia", "Depósito", "Otro"];
-const S0 = () => ({ precios: { caja: 3.8, grande: 0.6, chica: 0.5 }, preciosProd: {}, personal: [], vehiculos: [], dias: {}, liqs: {}, tripCerrada: {}, adminHash: "", saldosManuales: [] });
+const S0 = () => ({ precios: { caja: 3.8, grande: 0.6, chica: 0.5 }, preciosProd: {}, personal: [], vehiculos: [], dias: {}, liqs: {}, tripCerrada: {}, adminHash: "", saldosManuales: [], catalogo: {} });
 let S = {
   precios: { caja: 3.8, grande: 0.6, chica: 0.5 },
   preciosProd: {},          // último precio usado por código de producto
@@ -530,6 +537,53 @@ function infoEnvase(nombre, P) {
   return { tipo: "Otro", precio: null };
 }
 
+// =====================================================================
+// Catálogo de productos (SKU, nombre, descripción, presentación = unid. por paquete, precio x unidad)
+// Las liquidaciones abiertas usan el precio y la presentación del catálogo; las cerradas quedan con los de su cierre.
+// =====================================================================
+function catProd(cod) {
+  const C = S.catalogo || {}; cod = String(cod);
+  return C[cod] || Object.values(C).find(p => (p.alias || []).includes(cod)) || null;
+}
+const vacioN = v => v == null || v === "" || isNaN(+v);
+function precioProdLiq(l, cod) {
+  const cp = catProd(cod), lp = (l.preciosProd || {})[cod], cpp = cp && !vacioN(cp.precio) ? +cp.precio : null;
+  const v = l.estado === "cerrada" ? (vacioN(lp) ? cpp : +lp) : (cpp != null ? cpp : (vacioN(lp) ? null : +lp));
+  return v == null ? null : v;
+}
+// agrega al catálogo los productos que aparecen en los PDF y aún no están (con el último precio y presentación usados)
+function sincCatalogo() {
+  S.catalogo = S.catalogo || {};
+  let cambio = false;
+  const liqs = Object.values(S.liqs).filter(l => l.pdf).sort((a, b) => (a.fecha + (a.creado || "")).localeCompare(b.fecha + (b.creado || "")));
+  for (const l of liqs) for (const x of l.pdf.lineas) {
+    if (x.seccion !== "Productos" || catProd(x.codigo)) continue;
+    const cod = String(x.codigo), r = rubroProd(x.nombre);
+    const pr = [...liqs].reverse().map(o => (o.preciosProd || {})[cod]).find(v => !vacioN(v)) ?? S.preciosProd[cod];
+    const fa = (S.factorProd || {})[cod] ?? [...liqs].reverse().map(o => (o.factorProd || {})[cod]).find(v => v > 0);
+    S.catalogo[cod] = { sku: cod, nombre: x.nombre, descripcion: r ? r.txt : "", presentacion: fa > 0 ? +fa : null,
+      precio: vacioN(pr) ? null : +pr, alias: [], creado: new Date().toISOString(), origen: "PDF" };
+    cambio = true;
+  }
+  return cambio;
+}
+function guardarEnCatalogo(cod, campo, val, nombre) {
+  S.catalogo = S.catalogo || {};
+  let p = catProd(cod);
+  if (!p) { const r = rubroProd(nombre || ""); p = S.catalogo[cod] = { sku: String(cod), nombre: nombre || "", descripcion: r ? r.txt : "", presentacion: null, precio: null, alias: [], creado: new Date().toISOString() }; }
+  p[campo] = val; p.actualizado = new Date().toISOString();
+}
+// líneas de la liquidación: las del PDF + productos buscados a mano para un ZPD7/ZPD4 que no estaban en el PDF
+function lineasLiq(l) {
+  const base = l.pdf ? l.pdf.lineas : [], ya = new Set(base.map(x => x.seccion + "|" + x.codigo)), extra = [];
+  (l.ajustes || []).forEach(a => {
+    if ((a.codigo === "ZPD7" || a.codigo === "ZPD4") && a.mat && !ya.has(a.mat)) {
+      ya.add(a.mat); extra.push({ seccion: a.seccion, codigo: a.codigoMat, nombre: a.nombre, conductor: "—", sistema: "—", diferencia: 0, manual: true });
+    }
+  });
+  return extra.length ? base.concat(extra) : base;
+}
+
 // ZPD7 quita faltante (+cantidad), ZPD4 agrega faltante (−cantidad)
 function mapaAjustes(l) {
   const m = {};
@@ -538,7 +592,7 @@ function mapaAjustes(l) {
 }
 // unidades por paquete de un producto: la que se escribió en la liquidación, la última usada para ese código, o 1
 function seccionParches(l, c) {
-  const prods = (l.pdf ? l.pdf.lineas : []).filter(x => x.seccion === "Productos");
+  const prods = lineasLiq(l).filter(x => x.seccion === "Productos");
   const d = difProductos(l, mapaAjustes(l));
   const conSob = prods.filter(x => d[x.codigo] > 0), conFal = prods.filter(x => d[x.codigo] < 0);
   if (!c.parches.length && !(conSob.length && conFal.length) && !l.parchesManual) return "";
@@ -580,7 +634,9 @@ function enlazarParches(l, c) {
   const au = $("parAuto"); if (au) au.onclick = () => { l.parchesManual = false; l.parches = []; l.parchar = true; fin(); };
 }
 function factorProd(l, ln) {
-  const f = (l.factorProd || {})[ln.codigo] ?? (S.factorProd || {})[ln.codigo];
+  const cp = catProd(ln.codigo), fc = cp && cp.presentacion > 0 ? +cp.presentacion : null;
+  const fl = (l.factorProd || {})[ln.codigo] ?? (S.factorProd || {})[ln.codigo];
+  const f = l.estado === "cerrada" ? (fl > 0 ? fl : fc) : (fc != null ? fc : fl);
   return f > 0 ? +f : 1;
 }
 // sugerencia según el nombre: "6X1" / "6Px1" → 6, "RT 12" → 12
@@ -601,12 +657,12 @@ function rubroProd(nombre) {
 }
 function difProductos(l, AJ) {      // diferencia de cada producto después de ZPD7/ZPD4
   const d = {};
-  (l.pdf ? l.pdf.lineas : []).filter(x => x.seccion === "Productos").forEach(x => { d[x.codigo] = (d[x.codigo] || 0) + x.diferencia + (AJ["Productos|" + x.codigo] || 0); });
+  lineasLiq(l).filter(x => x.seccion === "Productos").forEach(x => { d[x.codigo] = (d[x.codigo] || 0) + x.diferencia + (AJ["Productos|" + x.codigo] || 0); });
   return d;
 }
 function parchesAuto(l, AJ) {
   const d = difProductos(l, AJ), info = {};
-  (l.pdf ? l.pdf.lineas : []).filter(x => x.seccion === "Productos").forEach(x => info[x.codigo] = rubroProd(x.nombre));
+  lineasLiq(l).filter(x => x.seccion === "Productos").forEach(x => info[x.codigo] = rubroProd(x.nombre));
   const out = [], sob = {}, fal = {};
   Object.keys(d).forEach(c => { if (d[c] > 0) sob[c] = d[c]; else if (d[c] < 0) fal[c] = -d[c]; });
   Object.keys(sob).forEach(cs => {
@@ -629,7 +685,7 @@ function calcBase(l) {
   const PAR = {}, parches = parchesDe(l, AJ);
   parches.forEach(p => { PAR[p.sob] = (PAR[p.sob] || 0) - p.cant; PAR[p.fal] = (PAR[p.fal] || 0) + p.cant; });
   r.parches = parches;
-  for (const lnPdf of (l.pdf ? l.pdf.lineas : [])) {
+  for (const lnPdf of lineasLiq(l)) {
     const aj = AJ[lnPdf.seccion + "|" + lnPdf.codigo] || 0;
     const pa = lnPdf.seccion === "Productos" ? (PAR[lnPdf.codigo] || 0) : 0;
     if (!lnPdf.diferencia && !aj && !pa) continue;
@@ -642,9 +698,9 @@ function calcBase(l) {
     } else if (ln.seccion === "Productos") {
       r.prod += ln.diferencia;
       if (l.incluirProductos) {
-        const pr = (l.preciosProd || {})[ln.codigo];
+        const pr = precioProdLiq(l, ln.codigo);
         x.factor = factorProd(l, ln); x.unidades = ln.diferencia * x.factor;
-        if (pr != null && pr !== "") { x.precio = +pr; x.dinero = r2(x.unidades * pr); if (x.dinero > 0) { r.sobr += x.dinero; r.liq.sobr += x.dinero; } else { r.falt += x.dinero; r.liq.falt += x.dinero; } r.prodMonto += x.dinero; }
+        if (pr != null) { x.precio = +pr; x.dinero = r2(x.unidades * pr); if (x.dinero > 0) { r.sobr += x.dinero; r.liq.sobr += x.dinero; } else { r.falt += x.dinero; r.liq.falt += x.dinero; } r.prodMonto += x.dinero; }
         else if (ln.diferencia) r.prodSinPrecio++;
       }
     }
@@ -743,7 +799,7 @@ function estadoTag(l) {
 // Navegación
 // =====================================================================
 const TITULOS = { liquidar: "Liquidaciones", reporte: "Cierre del día: total pagado y descontado al personal", traza: "Trazabilidad de faltantes y sobrantes", inventario: "Inventario: faltantes y sobrantes netos",
-  tripulacion: "Tripulación del día", personal: "Personal", vehiculos: "Vehículos", config: "Configuración" };
+  productos: "Productos: catálogo de SKU, presentación y precios", tripulacion: "Tripulación del día", personal: "Personal", vehiculos: "Vehículos", config: "Configuración" };
 function ir(v) {
   VISTA = v;
   document.querySelectorAll(".side button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
@@ -763,7 +819,8 @@ $("fecha").onchange = e => { FECHA = e.target.value || hoyISO(); render(); };
 
 function render() {
   const m = $("main");
-  ({ liquidar: vLiquidar, reporte: vReporte, inventario: vInventario, traza: vTraza, tripulacion: vTripulacion, personal: vPersonal, vehiculos: vVehiculos, config: vConfig })[VISTA](m);
+  if (sincCatalogo()) guardar();
+  ({ liquidar: vLiquidar, reporte: vReporte, inventario: vInventario, traza: vTraza, productos: vProductos, tripulacion: vTripulacion, personal: vPersonal, vehiculos: vVehiculos, config: vConfig })[VISTA](m);
 }
 
 // =====================================================================
@@ -1000,6 +1057,12 @@ function cerrarPanel() {
   LIQ_ABIERTA = null; $("panel").classList.remove("on"); guardar(); render();
 }
 
+function nombreProd(x) {
+  const cp = x.seccion === "Productos" ? catProd(x.codigo) : null;
+  const n = cp && cp.nombre ? cp.nombre : x.nombre;
+  return esc(n) + (cp && cp.nombre && cp.nombre !== x.nombre ? `<br><small class="ayuda">PDF: ${esc(x.nombre)}</small>` : "")
+    + (x.manual ? ` <span class="tag azul" title="No figura en el PDF; se agregó con un ZPD">ZPD manual</span>` : "");
+}
 function tablaSeccion(nombre, existe, lineas, modo, l) {
   const ls = lineas.filter(x => x.seccion === nombre);
   const tag = ls.length ? `<span class="tag neg">${ls.length} línea(s) con diferencia</span>` : `<span class="tag ok">Sin diferencias</span>`;
@@ -1018,7 +1081,7 @@ function tablaSeccion(nombre, existe, lineas, modo, l) {
     <th>Código</th><th>Descripción</th><th class="num">Conductor</th><th class="num">Sistema</th><th class="num">Diferencia</th>
     ${prod ? `<th class="num">Unid. por paquete</th><th class="num">Unidades</th><th class="num">Precio x unidad</th><th class="num">Dinero</th>`
       : conDinero ? `<th>Tipo</th><th class="num">Precio</th><th class="num">Dinero</th>` : ""}</tr></thead><tbody>
-    ${ls.map(x => `<tr><td>${esc(x.codigo)}</td><td>${esc(x.nombre)}</td><td class="num">${x.conductor}</td><td class="num">${x.sistema}</td>
+    ${ls.map(x => `<tr><td>${esc(x.codigo)}</td><td>${nombreProd(x)}</td><td class="num">${x.conductor}</td><td class="num">${x.sistema}</td>
       <td class="num"><span class="tag ${cls(x.diferencia)}">${und(x.diferencia)}</span>${x.ajuste || x.parche ? `<br><small class="ayuda" style="white-space:nowrap">PDF ${und(x.difPdf)}${x.ajuste ? " · ZPD " + und(x.ajuste) : ""}${x.parche ? " · parche " + und(x.parche) : ""}</small>` : ""}</td>
       ${prod ? `<td class="num">${editable && l.editarFactor ? `<input class="precio" type="number" step="1" min="1" data-fac="${esc(x.codigo)}" value="${x.factor}" title="Ej. six pack = 6">`
           + (factorSugerido(x.nombre) && factorSugerido(x.nombre) !== x.factor ? `<br><a href="#" data-sugf="${esc(x.codigo)}|${factorSugerido(x.nombre)}" style="font-size:11px">usar ${factorSugerido(x.nombre)}</a>` : "") : x.factor}</td>
@@ -1036,7 +1099,7 @@ function pintarPanel() {
   const v = vehiculo(l.vehId) || { placa: "?", bk: "" };
   const c = calc(l), trip = tripLiq(l), cerrada = l.estado === "cerrada";
   const e = l.pdf ? l.pdf.enc : null;
-  const secs = new Set((l.pdf ? l.pdf.lineas : []).map(x => x.seccion));
+  const secs = new Set(lineasLiq(l).map(x => x.seccion));
   $("panel").classList.add("on");
   $("hoja").innerHTML = `
     <div class="ptop"><h2>Detalle de liquidación — ${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""} — Viaje ${nv(l)}</h2>
@@ -1104,7 +1167,7 @@ function pintarPanel() {
   if (chk) chk.onchange = () => { l.incluirProductos = chk.checked; guardar(); pintarPanel(); render(); };
   const setFactor = (cod, v) => {
     l.factorProd = l.factorProd || {}; S.factorProd = S.factorProd || {};
-    if (!(v >= 1)) { delete l.factorProd[cod]; } else { l.factorProd[cod] = Math.round(v); S.factorProd[cod] = Math.round(v); }
+    if (!(v >= 1)) { delete l.factorProd[cod]; guardarEnCatalogo(cod, "presentacion", null); } else { l.factorProd[cod] = Math.round(v); S.factorProd[cod] = Math.round(v); guardarEnCatalogo(cod, "presentacion", Math.round(v), (lineasLiq(l).find(x => x.codigo === cod) || {}).nombre); }
     guardar(); pintarPanel(); render();
   };
   $("hoja").querySelectorAll("input[data-fac]").forEach(inp => inp.onchange = () => setFactor(inp.dataset.fac, +inp.value));
@@ -1112,16 +1175,11 @@ function pintarPanel() {
   $("hoja").querySelectorAll("input.precio[data-cod]").forEach(inp => inp.onchange = () => {
     const val = inp.value === "" ? null : Math.max(0, +inp.value);
     l.preciosProd = l.preciosProd || {};
-    if (val == null) delete l.preciosProd[inp.dataset.cod]; else { l.preciosProd[inp.dataset.cod] = val; S.preciosProd[inp.dataset.cod] = val; }
+    const cod = inp.dataset.cod, nom = (lineasLiq(l).find(x => x.codigo === cod) || {}).nombre;
+    if (val == null) delete l.preciosProd[cod]; else { l.preciosProd[cod] = val; S.preciosProd[cod] = val; }
+    guardarEnCatalogo(cod, "precio", val, nom);
     guardar(); pintarPanel(); render();
   });
-  if (chk && chk.checked) {   // precarga precios recordados
-    let cambio = false;
-    c.lineas.filter(x => x.seccion === "Productos").forEach(x => {
-      if ((l.preciosProd || {})[x.codigo] == null && S.preciosProd[x.codigo] != null) { l.preciosProd[x.codigo] = S.preciosProd[x.codigo]; cambio = true; }
-    });
-    if (cambio) { guardar(); pintarPanel(); return; }
-  }
   enlazarParches(l, c);
   enlazarAjustes(l);
   enlazarCobro(l, c, trip);
@@ -1132,7 +1190,6 @@ function seccionAjustes(l) {
   const aj = l.ajustes || [];
   const efecto = a => a.codigo === "ZPD7" ? `Quita faltante (+${a.cantidad})` : a.codigo === "ZPD4" ? `Agrega faltante (−${a.cantidad})`
     : a.codigo === "CORREO" ? `Regularizar por correo ${a.estado === "regularizado" ? `<span class="tag pos">Regularizado</span>` : `<span class="tag warn">Pendiente</span>`}` : "Comentario";
-  const mats = l.pdf.lineas.map((x, i) => ({ x, i })).sort((a, b) => (b.x.diferencia !== 0) - (a.x.diferencia !== 0));
   return `
     <h3>Ajustes y comentarios (ZPD7 / ZPD4) ${aj.length ? `<span class="tag azul">${aj.length}</span>` : ""}</h3>
     <p class="ayuda" style="margin-top:0"><b>ZPD7</b> quita mercadería faltante (−24 con ZPD7 24 → 0). <b>ZPD4</b> agrega faltante (−24 con ZPD4 24 → −48). El ajuste cambia la diferencia y el dinero de la liquidación. <b>✉ Enviar correo</b> deja la diferencia pendiente de regularizar por correo (no cambia el monto) y prepara el correo.</p>
@@ -1145,7 +1202,8 @@ function seccionAjustes(l) {
     ${cerrada ? "" : `<div class="cobro-form">
       <div class="row">
         <label class="f">Código<select id="ajCod"><option value="" selected>— Elige una opción —</option><option value="ZPD7">ZPD7 – quita faltante</option><option value="ZPD4">ZPD4 – agrega faltante</option><option value="CORREO">✉ Enviar correo – regularizar por correo</option><option value="COMENTARIO">Solo comentario</option></select></label>
-        <label class="f grow" id="ajMatW">Material<select id="ajMat">${mats.map(({ x, i }) => `<option value="${i}">${esc(x.seccion)} · ${esc(x.codigo)} — ${esc(x.nombre)} (PDF ${und(x.diferencia)})</option>`).join("")}</select></label>
+        <div class="f grow" id="ajMatW"><span>Material — busca por SKU o nombre</span><input id="ajBus" placeholder="Escribe el SKU o parte del nombre (ej. 2821, pilsen 630)" autocomplete="off">
+          <div class="bus-res" id="ajRes"></div><div class="bus-sel" id="ajSelTxt"></div></div>
         <label class="f" id="ajCantW">Cantidad<input id="ajCant" type="number" min="1" step="1" style="width:100px"></label>
       </div>
       <div class="row" style="margin-top:8px">
@@ -1212,11 +1270,29 @@ function enlazarAjustes(l) {
   const cod = $("ajCod"); if (!cod) return;
   const toggle = () => { const sc = cod.value === "COMENTARIO" || !cod.value; $("ajCantW").style.display = sc ? "none" : ""; $("ajMatW").style.display = cod.value ? "" : "none"; };
   cod.onchange = toggle; toggle();
+  // buscador: primero las líneas del PDF, luego todo el catálogo de productos
+  let SEL = null;
+  const cands = () => {
+    const pdf = lineasLiq(l).map(x => ({ seccion: x.seccion, codigo: String(x.codigo), nombre: x.nombre, dif: x.diferencia, enPdf: !x.manual }));
+    const ya = new Set(pdf.map(x => x.seccion + "|" + x.codigo));
+    const cat = Object.values(S.catalogo || {}).filter(p => !ya.has("Productos|" + p.sku) && !(p.alias || []).some(a => ya.has("Productos|" + a)))
+      .map(p => ({ seccion: "Productos", codigo: p.sku, nombre: p.nombre, desc: p.descripcion, enPdf: false }));
+    return pdf.sort((a, b) => (b.dif !== 0) - (a.dif !== 0)).concat(cat.sort((a, b) => a.codigo.localeCompare(b.codigo, "es", { numeric: true })));
+  };
+  const etq = x => { const cp = x.seccion === "Productos" ? catProd(x.codigo) : null;
+    return `${esc(x.seccion)} · <b>${esc(x.codigo)}</b> — ${esc(cp && cp.nombre ? cp.nombre : x.nombre)}${x.enPdf ? ` <small class="ayuda">(PDF ${und(x.dif)})</small>` : ` <small class="ayuda">(catálogo${x.desc ? " · " + esc(x.desc) : ""})</small>`}`; };
+  const buscar = () => {
+    const q = $("ajBus").value.trim(), C = cands();
+    const r = (q ? C.filter(x => hayQ(q, [x.codigo, x.nombre, (catProd(x.codigo) || {}).nombre, x.desc, x.seccion].join(" "))) : C.filter(x => x.enPdf)).slice(0, 15);
+    $("ajRes").innerHTML = r.map((x, i) => `<div data-i="${i}">${etq(x)}</div>`).join("") || (q ? `<div style="cursor:default" class="ayuda">Sin resultados. Agrégalo primero en 🏷️ Productos.</div>` : "");
+    $("ajRes").querySelectorAll("[data-i]").forEach(d => d.onclick = () => { SEL = r[+d.dataset.i]; $("ajSelTxt").innerHTML = `Seleccionado: ${etq(SEL)}`; $("ajRes").innerHTML = ""; $("ajBus").value = ""; });
+  };
+  $("ajBus").oninput = buscar; $("ajBus").onfocus = buscar;
   $("ajAdd").onclick = () => {
     const err = t => $("ajErr").textContent = t;
     const codigo = cod.value, com = $("ajCom").value.trim();
     if (!codigo) return err("Elige una opción: ZPD7, ZPD4, Enviar correo o Solo comentario.");
-    const x = l.pdf.lineas[+$("ajMat").value];
+    const x = SEL;
     const a = { id: uid(), codigo, comentario: com, fecha: new Date().toISOString(), cantidad: 0, mat: "", seccion: "", codigoMat: "", nombre: "" };
     if (codigo === "COMENTARIO") {
       if (!com) return err("Escribe el comentario.");
@@ -1226,7 +1302,7 @@ function enlazarAjustes(l) {
       if (!x) return err("Elige el material.");
       if (!(cant > 0)) return err("Ingresa la cantidad (número entero mayor a 0).");
       Object.assign(a, { cantidad: cant, mat: x.seccion + "|" + x.codigo, seccion: x.seccion, codigoMat: x.codigo, nombre: x.nombre });
-      if (codigo === "CORREO") { a.estado = "pendiente"; a.difPdf = x.diferencia; }
+      if (codigo === "CORREO") { a.estado = "pendiente"; a.difPdf = x.dif || 0; }
     }
     (l.ajustes = l.ajustes || []).push(a);
     guardar(); pintarPanel(); render();
@@ -1458,6 +1534,10 @@ function enlazarCobro(l, c, trip) {
     const cc = calc(l); if (cc.pendiente !== 0) return;
     l.creditos = cc.creditos.map(u => ({ ...u }));
     l.parchesCierre = cc.parches.map(p => ({ ...p }));
+    cc.lineas.filter(x => x.seccion === "Productos").forEach(x => {     // precio y presentación del catálogo quedan fijos al cerrar
+      l.factorProd = l.factorProd || {}; l.factorProd[x.codigo] = factorProd(l, x);
+      const pr = precioProdLiq(l, x.codigo); if (pr != null) { l.preciosProd = l.preciosProd || {}; l.preciosProd[x.codigo] = pr; }
+    });
     l.totalesCierre = { neto: cc.neto, aCobrar: cc.aCobrar, pagado: cc.pagado, descontado: cc.descontado, vac: cc.vac.neto, liq: cc.liq.neto };
     if (cm) l.comentarioCierre = cm.value.trim();
     l.estado = "cerrada"; l.cerradaEn = new Date().toISOString();
@@ -1624,9 +1704,9 @@ function materialesInventario(secciones) {
         if (!hayQ(INV.q, txt)) return;
         const k = x.seccion + "|" + x.codigo;
         const fac = x.seccion === "Productos" ? factorProd(l, x) : 1;
-        const precio = x.seccion === "Productos" ? ((l.preciosProd || {})[x.codigo] ?? S.preciosProd[x.codigo]) : x.precio;
+        const precio = x.seccion === "Productos" ? precioProdLiq(l, x.codigo) : x.precio;
         const valor = x.dinero != null ? x.dinero : precio != null ? r2(x.diferencia * fac * precio) : null;
-        const M = mats[k] = mats[k] || { seccion: x.seccion, codigo: x.codigo, nombre: x.nombre, tipo: x.tipo, sob: 0, fal: 0, uSob: 0, uFal: 0, valor: 0, sinValor: 0, movs: [] };
+        const M = mats[k] = mats[k] || { seccion: x.seccion, codigo: x.codigo, nombre: (x.seccion === "Productos" && (catProd(x.codigo) || {}).nombre) || x.nombre, tipo: x.tipo, sob: 0, fal: 0, uSob: 0, uFal: 0, valor: 0, sinValor: 0, movs: [] };
         if (x.diferencia > 0) { M.sob += x.diferencia; M.uSob += x.diferencia * fac; } else { M.fal += x.diferencia; M.uFal += x.diferencia * fac; }
         if (valor != null) M.valor = r2(M.valor + valor); else M.sinValor++;
         M.movs.push({ l, v, trip, x, fac, valor });
@@ -2411,6 +2491,107 @@ function vPersonal(m) {
 // =====================================================================
 // VISTA: Vehículos
 // =====================================================================
+// =====================================================================
+// VISTA: Productos — catálogo editable (SKU, nombre, descripción, presentación, precio)
+// =====================================================================
+let CAT = { q: "", filtro: "" };
+function usoProducto(p) {
+  const cods = new Set([p.sku, ...(p.alias || [])]);
+  return Object.values(S.liqs).filter(l => l.pdf && (l.pdf.lineas.some(x => x.seccion === "Productos" && cods.has(String(x.codigo)))
+    || (l.ajustes || []).some(a => a.seccion === "Productos" && cods.has(String(a.codigoMat))))).length;
+}
+function vProductos(m) {
+  const C = S.catalogo || {};
+  const todos = Object.values(C);
+  const conPrecio = p => !vacioN(p.precio);
+  const lista = todos.filter(p => hayQ(CAT.q, [p.sku, ...(p.alias || []), p.nombre, p.descripcion].join(" ")))
+    .filter(p => CAT.filtro === "con" ? conPrecio(p) : CAT.filtro === "sin" ? !conPrecio(p) : true)
+    .sort((a, b) => (conPrecio(b) - conPrecio(a)) || String(a.sku).localeCompare(String(b.sku), "es", { numeric: true }));
+  const nSin = todos.filter(p => !conPrecio(p)).length;
+  m.innerHTML = `
+    <div class="card"><h2>Agregar producto</h2>
+      <div class="row">
+        <label class="f">SKU<input id="cSku" placeholder="2821" style="width:110px"></label>
+        <label class="f grow">Nombre<input id="cNom" placeholder="PILSEN CALLAO 630ML RT 12 CP"></label>
+        <label class="f grow">Descripción<input id="cDes" placeholder="630 ml × 12 RT"></label>
+        <label class="f">Presentación (unid. x paquete)<input id="cPre" type="number" min="1" step="1" placeholder="12" style="width:150px"></label>
+        <label class="f">Precio x unidad (S/)<input id="cPr" type="number" min="0" step="0.0001" placeholder="5.6333" style="width:130px"></label>
+        <button class="primary" id="cAdd">Agregar</button>
+      </div>
+      <details style="margin-top:12px"><summary style="cursor:pointer;font-weight:600">Pegar lista desde Excel</summary>
+        <p class="ayuda">Columnas <b>SKU · Nombre · Descripción · Presentación · Precio x unidad</b>. Si el SKU ya existe, se actualizan los datos que vengan llenos.</p>
+        <textarea id="cPegar" placeholder="2821&#9;PILSEN CALLAO 630ML RT 12 CP&#9;630 ml × 12 RT&#9;12&#9;5.6333"></textarea>
+        <button id="cImportar" style="margin-top:6px">Importar</button></details>
+      <p class="ayuda">Los productos de los PDF se agregan solos. El <b>precio</b> y la <b>presentación</b> que pongas aquí se usan en todas las liquidaciones <b>abiertas</b>; las <b>cerradas</b> conservan los valores con los que se cerraron. Si cambias el precio dentro de una liquidación, también se actualiza aquí.</p>
+    </div>
+    <div class="card scroll"><h2>Catálogo de productos (${todos.length}) ${nSin ? `<span class="tag warn">${nSin} sin precio</span>` : `<span class="tag ok">Todos con precio</span>`}</h2>
+      <div class="row" style="margin-bottom:10px">
+        <label class="f grow">Buscar<input id="cQ" value="${esc(CAT.q)}" placeholder="SKU, nombre o descripción"></label>
+        <label class="f">Mostrar<select id="cF"><option value="">Todos</option><option value="con" ${CAT.filtro === "con" ? "selected" : ""}>Con precio</option><option value="sin" ${CAT.filtro === "sin" ? "selected" : ""}>Sin precio</option></select></label>
+      </div>
+      ${lista.length ? `<table class="cat"><thead><tr><th>SKU</th><th>Nombre</th><th>Descripción</th><th class="num">Presentación<br>(unid. x paquete)</th><th class="num">Precio x unidad</th><th class="num">Precio x paquete</th><th class="num">Liquidaciones</th><th>Actualizado</th><th></th></tr></thead><tbody>
+      ${lista.map(p => { const sug = factorSugerido(p.nombre), k = esc(p.sku);
+        return `<tr><td><input data-ce="${k}|sku" value="${k}" style="width:90px">${(p.alias || []).length ? `<br><small class="ayuda">antes: ${esc(p.alias.join(", "))}</small>` : ""}</td>
+        <td><input data-ce="${k}|nombre" value="${esc(p.nombre)}" style="min-width:240px;width:100%"></td>
+        <td><input data-ce="${k}|descripcion" value="${esc(p.descripcion || "")}" style="min-width:140px;width:100%"></td>
+        <td class="num"><input class="precio" type="number" min="1" step="1" data-ce="${k}|presentacion" value="${p.presentacion ?? ""}" placeholder="1">
+          ${sug && sug !== +p.presentacion ? `<br><a href="#" data-csug="${k}|${sug}" style="font-size:11px">usar ${sug}</a>` : ""}</td>
+        <td class="num"><input class="precio" type="number" min="0" step="0.0001" data-ce="${k}|precio" value="${p.precio ?? ""}" placeholder="S/" style="width:95px"></td>
+        <td class="num">${conPrecio(p) ? soles(r2(+p.precio * (p.presentacion > 0 ? +p.presentacion : 1)), false) : "—"}</td>
+        <td class="num">${usoProducto(p)}</td>
+        <td style="font-size:11.5px;color:var(--muted)">${p.actualizado ? new Date(p.actualizado).toLocaleString("es-PE") : (p.origen === "PDF" ? "Desde PDF" : "")}</td>
+        <td><button class="x" data-cdel="${k}" title="Eliminar">✕</button></td></tr>`; }).join("")}</tbody></table>`
+      : `<div class="vacio">${todos.length ? "Ningún producto coincide con la búsqueda." : "Aún no hay productos. Se agregan solos al cargar un PDF, o agrégalos arriba."}</div>`}
+    </div>`;
+  const num = (v, ent) => { if (String(v).trim() === "") return null; const n = +String(v).replace(",", "."); return isNaN(n) || n < 0 ? undefined : ent ? Math.round(n) : n; };
+  const alta = (sku, nombre, des, pre, pr) => {
+    sku = String(sku || "").trim().replace(/^#/, ""); if (!sku) return false;
+    const ex = catProd(sku), p = ex || (S.catalogo[sku] = { sku, nombre: "", descripcion: "", presentacion: null, precio: null, alias: [], creado: new Date().toISOString() });
+    if (nombre && nombre.trim()) p.nombre = nombre.trim();
+    if (des && des.trim()) p.descripcion = des.trim();
+    const a = num(pre ?? "", true), b = num(pr ?? "");
+    if (a != null && a !== undefined && a >= 1) p.presentacion = a;
+    if (b != null && b !== undefined) p.precio = b;
+    if (!p.descripcion) { const r = rubroProd(p.nombre); if (r) p.descripcion = r.txt; }
+    p.actualizado = new Date().toISOString(); return true;
+  };
+  $("cAdd").onclick = () => {
+    if (!$("cSku").value.trim()) return toast("Escribe el SKU.");
+    if (!$("cNom").value.trim() && !catProd($("cSku").value.trim())) return toast("Escribe el nombre del producto.");
+    alta($("cSku").value, $("cNom").value, $("cDes").value, $("cPre").value, $("cPr").value); guardar(); render(); toast("Producto guardado.");
+  };
+  $("cImportar").onclick = () => {
+    let n = 0; $("cPegar").value.split(/\r?\n/).map(r => r.split(/\t|;/)).forEach(([a, b, c, d, e]) => { if (a && !/^sku|^c[oó]digo/i.test(a.trim()) && alta(a, b, c, d, e)) n++; });
+    guardar(); render(); toast(n + " producto(s) importados.");
+  };
+  const q = $("cQ"); q.oninput = () => { CAT.q = q.value; clearTimeout(q._t); q._t = setTimeout(() => { render(); const nq = $("cQ"); nq.focus(); nq.setSelectionRange(nq.value.length, nq.value.length); }, 250); };
+  $("cF").onchange = e => { CAT.filtro = e.target.value; render(); };
+  m.querySelectorAll("[data-ce]").forEach(i => i.onchange = () => {
+    const [sku, campo] = i.dataset.ce.split("|"), p = S.catalogo[sku]; if (!p) return;
+    if (campo === "sku") {
+      const nuevo = i.value.trim().replace(/^#/, "");
+      if (!nuevo) { i.value = sku; return toast("El SKU no puede quedar vacío."); }
+      if (nuevo === sku) return;
+      if (catProd(nuevo)) { i.value = sku; return toast(`Ya existe un producto con el SKU ${nuevo}.`); }
+      delete S.catalogo[sku]; p.sku = nuevo; p.alias = [...new Set([...(p.alias || []), sku])].filter(a => a !== nuevo); S.catalogo[nuevo] = p;
+    } else if (campo === "presentacion") {
+      const v = num(i.value, true); if (v === undefined || v === 0) { i.value = p.presentacion ?? ""; return toast("La presentación debe ser un número entero mayor a 0."); }
+      p.presentacion = v;
+    } else if (campo === "precio") {
+      const v = num(i.value); if (v === undefined) { i.value = p.precio ?? ""; return toast("Precio no válido."); }
+      p.precio = v;
+    } else p[campo] = i.value.trim();
+    p.actualizado = new Date().toISOString(); LIBRO = null; guardar(); render();
+  });
+  m.querySelectorAll("[data-csug]").forEach(a => a.onclick = e => { e.preventDefault(); const [sku, v] = a.dataset.csug.split("|"); S.catalogo[sku].presentacion = +v; S.catalogo[sku].actualizado = new Date().toISOString(); LIBRO = null; guardar(); render(); });
+  m.querySelectorAll("[data-cdel]").forEach(b => b.onclick = () => {
+    const p = S.catalogo[b.dataset.cdel]; if (!p) return;
+    if (usoProducto(p)) return toast("Figura en liquidaciones: no se puede eliminar (puedes editarlo).");
+    if (!b.dataset.ok) { b.dataset.ok = 1; b.textContent = "¿Eliminar?"; setTimeout(() => { if (b.isConnected) { delete b.dataset.ok; b.textContent = "✕"; } }, 3000); return; }
+    delete S.catalogo[b.dataset.cdel]; guardar(); render();
+  });
+}
+
 function vVehiculos(m) {
   m.innerHTML = `
     <div class="card"><h2>Agregar vehículo</h2><div class="row">
