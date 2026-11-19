@@ -133,6 +133,8 @@
   .imp-b .vh input{padding:4px 6px;font-weight:700;color:#2b3a75}
   .imp-b table{table-layout:fixed} .imp-b td{padding:4px 6px} .imp-b select,.imp-b td input{font-size:12px;padding:4px 6px;width:100%}
   .mini{font-size:11.5px;padding:3px 9px;border-radius:7px}
+  a.btnlink{display:inline-block;text-decoration:none;font-weight:500;border-radius:8px;padding:7px 13px;border:1px solid var(--line)}
+  a.btnlink.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
   .vrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:4px 6px;border-radius:6px;cursor:pointer}
   .vrow:hover{background:#efeefe}
   .veh .vf{gap:8px}
@@ -1023,20 +1025,21 @@ function pintarPanel() {
 function seccionAjustes(l) {
   const cerrada = l.estado === "cerrada";
   const aj = l.ajustes || [];
-  const efecto = a => a.codigo === "ZPD7" ? `Quita faltante (+${a.cantidad})` : a.codigo === "ZPD4" ? `Agrega faltante (−${a.cantidad})` : "Comentario";
+  const efecto = a => a.codigo === "ZPD7" ? `Quita faltante (+${a.cantidad})` : a.codigo === "ZPD4" ? `Agrega faltante (−${a.cantidad})`
+    : a.codigo === "CORREO" ? `Regularizar por correo ${a.estado === "regularizado" ? `<span class="tag pos">Regularizado</span>` : `<span class="tag warn">Pendiente</span>`}` : "Comentario";
   const mats = l.pdf.lineas.map((x, i) => ({ x, i })).sort((a, b) => (b.x.diferencia !== 0) - (a.x.diferencia !== 0));
   return `
     <h3>Ajustes y comentarios (ZPD7 / ZPD4) ${aj.length ? `<span class="tag azul">${aj.length}</span>` : ""}</h3>
-    <p class="ayuda" style="margin-top:0"><b>ZPD7</b> quita mercadería faltante (−24 con ZPD7 24 → 0). <b>ZPD4</b> agrega faltante (−24 con ZPD4 24 → −48). El ajuste cambia la diferencia y el dinero de la liquidación.</p>
+    <p class="ayuda" style="margin-top:0"><b>ZPD7</b> quita mercadería faltante (−24 con ZPD7 24 → 0). <b>ZPD4</b> agrega faltante (−24 con ZPD4 24 → −48). El ajuste cambia la diferencia y el dinero de la liquidación. <b>✉ Enviar correo</b> deja la diferencia pendiente de regularizar por correo (no cambia el monto) y prepara el correo.</p>
     ${aj.length ? `<div class="card scroll" style="padding:0"><table><thead><tr><th>Código</th><th>Material</th><th class="num">Cantidad</th><th>Efecto</th><th>Comentario</th><th>Registrado</th><th></th></tr></thead><tbody>
-      ${aj.map(a => `<tr><td><span class="tag ${a.codigo === "ZPD7" ? "pos" : a.codigo === "ZPD4" ? "neg" : "ok"}">${esc(a.codigo === "COMENTARIO" ? "Nota" : a.codigo)}</span></td>
-        <td>${a.mat ? esc(a.seccion + " · " + a.codigoMat + " — " + a.nombre) : "—"}</td><td class="num">${a.codigo === "COMENTARIO" ? "—" : a.cantidad}</td>
+      ${aj.map(a => `<tr><td><span class="tag ${a.codigo === "ZPD7" ? "pos" : a.codigo === "ZPD4" ? "neg" : a.codigo === "CORREO" ? "azul" : "ok"}">${esc(a.codigo === "COMENTARIO" ? "Nota" : a.codigo === "CORREO" ? "✉ Correo" : a.codigo)}</span></td>
+        <td>${a.mat ? esc(a.seccion + " · " + a.codigoMat + " — " + a.nombre) : a.descuento ? `Descuento ${soles(a.descuento.monto, false)} · ${esc(a.descuento.nombre)}` : "—"}</td><td class="num">${a.codigo === "COMENTARIO" || !a.cantidad ? "—" : a.cantidad}</td>
         <td>${efecto(a)}</td><td>${esc(a.comentario || "")}</td><td style="font-size:11.5px;color:var(--muted)">${new Date(a.fecha).toLocaleString("es-PE")}</td>
-        <td>${cerrada ? "" : `<button class="x" data-delaj="${a.id}" title="Quitar">✕</button>`}</td></tr>`).join("")}
+        <td style="white-space:nowrap">${a.codigo === "CORREO" ? `<button class="mini" data-mail="${a.id}" title="Redactar correo">✉</button> <button class="mini" data-regul="${a.id}">${a.estado === "regularizado" ? "Deshacer" : "✔ Regularizado"}</button> ` : ""}${cerrada ? "" : `<button class="x" data-delaj="${a.id}" title="Quitar">✕</button>`}</td></tr>`).join("")}
     </tbody></table></div>` : ""}
     ${cerrada ? "" : `<div class="cobro-form">
       <div class="row">
-        <label class="f">Código<select id="ajCod"><option value="" selected>— Elige una opción —</option><option value="ZPD7">ZPD7 – quita faltante</option><option value="ZPD4">ZPD4 – agrega faltante</option><option value="COMENTARIO">Solo comentario</option></select></label>
+        <label class="f">Código<select id="ajCod"><option value="" selected>— Elige una opción —</option><option value="ZPD7">ZPD7 – quita faltante</option><option value="ZPD4">ZPD4 – agrega faltante</option><option value="CORREO">✉ Enviar correo – regularizar por correo</option><option value="COMENTARIO">Solo comentario</option></select></label>
         <label class="f grow" id="ajMatW">Material<select id="ajMat">${mats.map(({ x, i }) => `<option value="${i}">${esc(x.seccion)} · ${esc(x.codigo)} — ${esc(x.nombre)} (PDF ${und(x.diferencia)})</option>`).join("")}</select></label>
         <label class="f" id="ajCantW">Cantidad<input id="ajCant" type="number" min="1" step="1" style="width:100px"></label>
       </div>
@@ -1047,16 +1050,67 @@ function seccionAjustes(l) {
       <div class="msgs"><div class="m-err" id="ajErr"></div></div>
     </div>`}`;
 }
+// ---------- Regularización por correo
+function correoPorDescuento(l, monto, nombre) {
+  (l.ajustes = l.ajustes || []).push({ id: uid(), codigo: "CORREO", estado: "pendiente", _nuevo: true, comentario: `Descuento por correo a ${nombre}`,
+    fecha: new Date().toISOString(), cantidad: 0, mat: "", seccion: "", codigoMat: "", nombre: "", descuento: { monto, nombre } });
+}
+function textoCorreo(l, a) {
+  const v = vehiculo(l.vehId) || {}, e = l.pdf ? l.pdf.enc : {}, trip = tripLiq(l);
+  const asunto = `Regularización por correo – ${v.placa || e.placa}${v.bk ? " " + v.bk : ""} – Viaje ${e.viaje || ""} – ${e.fechaEntrega || fmtF(l.fecha)}`;
+  const L = [
+    "Buen día,", "",
+    "Se solicita regularizar por correo la siguiente diferencia de la liquidación de inventario:", "",
+    `• Fecha de entrega: ${e.fechaEntrega || fmtF(l.fecha)}`,
+    `• Placa / Nombre comercial: ${v.placa || e.placa}${v.bk ? " / " + v.bk : ""}${etqViaje(l)}`,
+    `• Nº de viaje: ${e.viaje || ""}`,
+    `• Conductor: ${e.conductor || ""}`,
+    trip.length ? `• Tripulación: ${trip.map(t => `${t.nombre} (${t.funcion})`).join(", ")}` : null,
+    a.mat ? `• Material: ${a.codigoMat} – ${a.nombre} (${a.seccion})` : null,
+    a.mat ? `• Cantidad a regularizar: ${a.cantidad} (diferencia en el PDF: ${und(a.difPdf ?? 0)})` : null,
+    a.descuento ? `• Descuento aplicado: ${soles(a.descuento.monto, false)} a ${a.descuento.nombre}` : null,
+    a.comentario && !a.descuento ? `• Comentario: ${a.comentario}` : null,
+    `• Revisor: ${e.revisor || ""}`, "",
+    "Quedo atento a la confirmación.", "",
+    "Saludos."
+  ];
+  return { asunto, cuerpo: L.filter(x => x !== null).join("\n") };
+}
+function modalCorreo(l, a) {
+  const { asunto, cuerpo } = textoCorreo(l, a), para = S.correoRegularizacion || "";
+  const mailto = `mailto:${encodeURIComponent(para).replace(/%40/g, "@")}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
+  const el = $("elige");
+  el.innerHTML = `<div class="hoja" style="max-width:640px"><h2 style="color:var(--brand)">✉ Correo para regularizar</h2>
+    <label class="f">Para<input id="mPara" value="${esc(para)}" placeholder="correo@empresa.com (se recuerda para la próxima vez)"></label>
+    <label class="f" style="margin-top:8px">Asunto<input id="mAsunto" value="${esc(asunto)}"></label>
+    <label class="f" style="margin-top:8px">Mensaje<textarea id="mCuerpo" style="min-height:230px">${esc(cuerpo)}</textarea></label>
+    <p class="ayuda">Copia el texto en tu correo, o pulsa “Abrir en mi correo”. ${para ? "" : "Puedes guardar el correo de destino en Configuración."}</p>
+    <div class="row" style="justify-content:flex-end"><button id="mCerrar">Cerrar</button><button id="mCopiar">📋 Copiar asunto y mensaje</button><a class="btnlink primary" id="mAbrir" href="${esc(mailto)}" target="_blank" rel="noopener">Abrir en mi correo</a></div></div>`;
+  el.classList.add("on");
+  const actualizar = () => { const p = $("mPara").value.trim();
+    $("mAbrir").href = `mailto:${encodeURIComponent(p).replace(/%40/g, "@")}?subject=${encodeURIComponent($("mAsunto").value)}&body=${encodeURIComponent($("mCuerpo").value)}`; };
+  ["mPara", "mAsunto", "mCuerpo"].forEach(id => $(id).oninput = actualizar);
+  $("mPara").onchange = () => { S.correoRegularizacion = $("mPara").value.trim(); guardar(); };
+  $("mCerrar").onclick = () => { el.classList.remove("on"); el.innerHTML = ""; };
+  $("mCopiar").onclick = async () => { try { await navigator.clipboard.writeText(`Asunto: ${$("mAsunto").value}\n\n${$("mCuerpo").value}`); toast("Correo copiado."); } catch (e) { toast("No se pudo copiar en este navegador."); } };
+  $("mAbrir").onclick = () => { a.enviadoEn = new Date().toISOString(); guardar(); };
+}
 function enlazarAjustes(l) {
   const h = $("hoja");
   h.querySelectorAll("[data-delaj]").forEach(b => b.onclick = () => { l.ajustes = (l.ajustes || []).filter(a => a.id !== b.dataset.delaj); guardar(); pintarPanel(); render(); });
+  h.querySelectorAll("[data-mail]").forEach(b => b.onclick = () => { const a = (l.ajustes || []).find(x => x.id === b.dataset.mail); if (a) modalCorreo(l, a); });
+  h.querySelectorAll("[data-regul]").forEach(b => b.onclick = () => {
+    const a = (l.ajustes || []).find(x => x.id === b.dataset.regul); if (!a) return;
+    if (a.estado === "regularizado") { a.estado = "pendiente"; delete a.regularizadoEn; } else { a.estado = "regularizado"; a.regularizadoEn = new Date().toISOString(); }
+    guardar(); pintarPanel(); render();
+  });
   const cod = $("ajCod"); if (!cod) return;
   const toggle = () => { const sc = cod.value === "COMENTARIO" || !cod.value; $("ajCantW").style.display = sc ? "none" : ""; $("ajMatW").style.display = cod.value ? "" : "none"; };
   cod.onchange = toggle; toggle();
   $("ajAdd").onclick = () => {
     const err = t => $("ajErr").textContent = t;
     const codigo = cod.value, com = $("ajCom").value.trim();
-    if (!codigo) return err("Elige una opción: ZPD7, ZPD4 o Solo comentario.");
+    if (!codigo) return err("Elige una opción: ZPD7, ZPD4, Enviar correo o Solo comentario.");
     const x = l.pdf.lineas[+$("ajMat").value];
     const a = { id: uid(), codigo, comentario: com, fecha: new Date().toISOString(), cantidad: 0, mat: "", seccion: "", codigoMat: "", nombre: "" };
     if (codigo === "COMENTARIO") {
@@ -1067,9 +1121,11 @@ function enlazarAjustes(l) {
       if (!x) return err("Elige el material.");
       if (!(cant > 0)) return err("Ingresa la cantidad (número entero mayor a 0).");
       Object.assign(a, { cantidad: cant, mat: x.seccion + "|" + x.codigo, seccion: x.seccion, codigoMat: x.codigo, nombre: x.nombre });
+      if (codigo === "CORREO") { a.estado = "pendiente"; a.difPdf = x.diferencia; }
     }
     (l.ajustes = l.ajustes || []).push(a);
     guardar(); pintarPanel(); render();
+    if (codigo === "CORREO") modalCorreo(l, a);
   };
 }
 // el PDF que se carga desde el panel va a la fecha de la liquidación abierta
@@ -1080,7 +1136,7 @@ function seccionCobro(l, c, trip) {
   const filas = (l.cobros || []).map(x => `<tr>
       <td><span class="tag ${x.tipo === "pago" ? "pos" : "neg"}">${x.tipo === "pago" ? "Pago" : "Descuento"}</span></td>
       <td>${esc(x.nombre)}${x.dni ? `<br><small class="ayuda">DNI ${esc(x.dni)}</small>` : ""}</td>
-      <td>${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? ` · Op. ${esc(x.operacion)}` : "") + `${x.recibe ? ` · Recibió: ${esc(x.recibe)}` : ""}` : esc({ persona: "Tripulante", tripulacion: "Toda la tripulación (partes iguales)", otro: "Otra persona" }[x.modo] || "")}</td>
+      <td>${x.motivo === "correo" ? `<span class="tag azul">✉ Por correo</span> ` : ""}${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? ` · Op. ${esc(x.operacion)}` : "") + `${x.recibe ? ` · Recibió: ${esc(x.recibe)}` : ""}` : esc({ persona: "Tripulante", tripulacion: "Toda la tripulación (partes iguales)", otro: "Otra persona" }[x.modo] || "")}</td>
       <td class="num"><b>${soles(x.monto, false)}</b></td>
       <td>${cerrada ? "" : `<button class="x" data-delcob="${x.id}" title="Quitar">✕</button>`}</td></tr>`).join("");
   const opcTrip = trip.map(t => `<option value="${esc(t.personaId)}">${esc(t.nombre)} (${esc(t.funcion)})</option>`).join("");
@@ -1118,6 +1174,7 @@ function seccionCobro(l, c, trip) {
           <label class="f" id="cOtroWrap" style="display:none">Nombre<input id="cOtroNombre" placeholder="Nombre completo"></label>
           <label class="f" id="cOtroDniWrap" style="display:none">DNI<input id="cOtroDni" placeholder="DNI" inputmode="numeric"></label>` : ""}
         ${FORM.modo === "tripulacion" ? `<div class="grow ayuda" style="margin:0 0 8px">Se dividirá entre ${trip.length} persona(s): ${trip.map(t => esc(t.nombre)).join(", ")}.</div>` : ""}
+        <label class="f">Motivo<select id="cMotivo"><option value="faltante">Faltante de la liquidación</option><option value="correo">✉ Por correo (regularizar por correo)</option></select></label>
         <label class="f">Monto (S/)<input id="cMonto" type="number" step="0.01" min="0.01" value="${montoDef}" style="width:110px"></label>
         <button class="primary" id="cAgregar">Agregar descuento</button>
       </div>`}
@@ -1264,12 +1321,18 @@ function enlazarCobro(l, c, trip) {
     } else if (FORM.modo === "tripulacion") {
       if (!trip.length) return err("No hay tripulación asignada.");
       const cent = Math.round(monto * 100), base = Math.floor(cent / trip.length), resto = cent - base * trip.length, grupo = uid();
-      trip.forEach((t, i) => l.cobros.push({ id: uid(), tipo: "descuento", personaId: t.personaId, nombre: t.nombre, dni: t.dni || "", monto: (base + (i < resto ? 1 : 0)) / 100, modo: "tripulacion", grupo, fecha: new Date().toISOString() }));
+      const motivo = $("cMotivo").value;
+      trip.forEach((t, i) => l.cobros.push({ id: uid(), tipo: "descuento", personaId: t.personaId, nombre: t.nombre, dni: t.dni || "", monto: (base + (i < resto ? 1 : 0)) / 100, modo: "tripulacion", grupo, motivo, fecha: new Date().toISOString() }));
+      if (motivo === "correo") correoPorDescuento(l, monto, "Toda la tripulación (partes iguales)");
     } else {
       const q = quien(); if (!q) return err("Indica a quién se le descuenta.");
-      l.cobros.push({ id: uid(), tipo: "descuento", ...q, monto, modo: FORM.modo, fecha: new Date().toISOString() });
+      const motivo = $("cMotivo").value;
+      l.cobros.push({ id: uid(), tipo: "descuento", ...q, monto, modo: FORM.modo, motivo, fecha: new Date().toISOString() });
+      if (motivo === "correo") correoPorDescuento(l, monto, q.nombre);
     }
     guardar(); pintarPanel(); render();
+    const ult = (l.ajustes || []).slice(-1)[0];
+    if (ult && ult.codigo === "CORREO" && ult._nuevo) { delete ult._nuevo; guardar(); modalCorreo(l, ult); }
   };
   const cm = $("cComent");
   if (cm) cm.oninput = () => { l.comentarioCierre = cm.value; clearTimeout(cm._t); cm._t = setTimeout(() => guardar(), 400); };
@@ -1347,6 +1410,14 @@ function vReporte(m) {
       <tr><td colspan="3"><b>TOTAL</b></td><td class="num pos"><b>${soles(r2(pg), false)}</b></td><td class="num neg"><b>${soles(r2(ds), false)}</b></td><td class="num"><b>${soles(r2(pg + ds), false)}</b></td><td></td></tr>
       </tbody></table>` : `<div class="vacio">Aún no hay pagos ni descuentos registrados en este rango.</div>`}
     </div>
+    ${(() => { const cs = []; ls.forEach(l => (l.ajustes || []).filter(a => a.codigo === "CORREO").forEach(a => cs.push({ l, a, v: vehiculo(l.vehId) || {} })));
+      if (!cs.length) return "";
+      const pend = cs.filter(x => x.a.estado !== "regularizado").length;
+      return `<div class="card scroll"><h2>✉ Regularizaciones por correo <span class="tag ${pend ? "warn" : "pos"}">${pend} pendiente(s)</span></h2><table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Nº viaje</th><th>Material / descuento</th><th class="num">Cantidad</th><th>Estado</th><th></th></tr></thead><tbody>
+        ${cs.map(({ l, a, v }) => `<tr><td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}${etqViaje(l)}</td><td>${esc(l.pdf.enc.viaje)}</td>
+          <td>${a.mat ? esc(a.codigoMat + " — " + a.nombre) : a.descuento ? `Descuento ${soles(a.descuento.monto, false)} · ${esc(a.descuento.nombre)}` : esc(a.comentario || "")}</td><td class="num">${a.cantidad || "—"}</td>
+          <td>${a.estado === "regularizado" ? `<span class="tag pos">Regularizado</span>` : `<span class="tag warn">Pendiente</span>`}</td><td><button data-ver="${l.id}">Ver</button></td></tr>`).join("")}
+      </tbody></table></div>`; })()}
     <div class="dos" style="grid-template-columns:1fr 1fr">
       <div class="card" style="grid-column:1/-1"><h2>Dinero recibido por responsable</h2>${Object.keys(porRecibe).length ? `<table><thead><tr><th>Responsable</th><th class="num">Pagos</th><th>Por medio</th><th class="num">Total recibido</th></tr></thead><tbody>
         ${Object.entries(porRecibe).sort((a, b) => b[1].total - a[1].total).map(([k, r]) => `<tr><td><b>${esc(k)}</b></td><td class="num">${r.n}</td><td style="font-size:12.5px">${Object.entries(r.medios).map(([mm, v]) => esc(mm) + " " + soles(v, false)).join(" · ")}</td><td class="num pos"><b>${soles(r.total, false)}</b></td></tr>`).join("")}
@@ -2051,10 +2122,13 @@ function vConfig(m) {
       <div class="row"><button class="primary" id="bExp">Descargar respaldo</button><button id="bImp">Restaurar respaldo</button></div>
       <p class="ayuda" style="margin-top:10px">${S.personal.length} personas · ${S.vehiculos.length} vehículos · ${Object.values(S.liqs).filter(l => l.pdf).length} liquidaciones</p>
     </div>
+    <div class="card"><h2>Correo para regularizaciones</h2><p class="ayuda">Dirección que se pondrá en “Para” al preparar un correo de regularización.</p>
+      <input id="cfgCorreo" value="${esc(S.correoRegularizacion || "")}" placeholder="correo@empresa.com" style="width:320px"></div>
     <div class="card"><h2>Administrador</h2>
       <p class="ayuda">La contraseña de administrador se pide para reabrir una tripulación del día que ya fue cerrada.</p>
       <button id="bAdmin">${S.adminHash ? "Cambiar contraseña de administrador" : "Crear contraseña de administrador"}</button></div>
     <div class="card"><h2>Borrar todo</h2><button class="danger" id="bBorrar">Borrar todos los datos</button></div>`;
+  $("cfgCorreo").onchange = e => { S.correoRegularizacion = e.target.value.trim(); guardar(); toast("Correo guardado."); };
   $("bAdmin").onclick = async () => {
     if (S.adminHash) {
       if (!(await asegurarAdmin("Ingresa la contraseña actual."))) return;
@@ -2165,7 +2239,11 @@ function exportarReporte(ls, desde, hasta) {
   hoja(wb, "Diferencias", COLS_DIF, filasDif(items), [15, 16], 13);
   const ajs = []; ls.forEach(l => { const v = vehiculo(l.vehId) || {}; (l.ajustes || []).forEach(a => ajs.push([fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje,
     a.codigo === "COMENTARIO" ? "Nota" : a.codigo, a.seccion, a.codigoMat, a.nombre, a.codigo === "COMENTARIO" ? "" : a.cantidad,
-    a.codigo === "ZPD7" ? "Quita faltante" : a.codigo === "ZPD4" ? "Agrega faltante" : "", a.comentario || ""])); });
+    a.codigo === "ZPD7" ? "Quita faltante" : a.codigo === "ZPD4" ? "Agrega faltante" : a.codigo === "CORREO" ? `Regularizar por correo (${a.estado === "regularizado" ? "regularizado" : "pendiente"})` : "", a.comentario || ""])); });
+  const correos = []; ls.forEach(l => { const v = vehiculo(l.vehId) || {}; (l.ajustes || []).filter(a => a.codigo === "CORREO").forEach(a => correos.push([fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje,
+    a.mat ? `${a.codigoMat} – ${a.nombre}` : a.descuento ? `Descuento ${soles(a.descuento.monto, false)} a ${a.descuento.nombre}` : "", a.cantidad || "", a.estado === "regularizado" ? "Regularizado" : "Pendiente",
+    a.enviadoEn ? new Date(a.enviadoEn).toLocaleString("es-PE") : "", a.regularizadoEn ? new Date(a.regularizadoEn).toLocaleString("es-PE") : "", a.comentario || ""])); });
+  hoja(wb, "Correos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Material / descuento", "Cantidad", "Estado", "Correo abierto", "Regularizado", "Comentario"], correos);
   const ids = new Set(ls.map(l => l.id)), FU = libro().fuentes;
   hoja(wb, "Neteos", ["Fecha del sobrante", "Vence", "Saldo a favor de", "DNI", "Productos", "Monto S/", "Aplicado S/", "Disponible S/", "Estado", "Registrado en", "Comentario"],
     (S.saldosManuales || []).filter(m => ids.has(m.liqId) || (m.fecha >= addDias(desde, -DIAS_SALDO) && m.fecha <= hasta)).map(m => { const f = FU["m:" + m.id] || { saldo: m.monto, estado: "" }, lr = S.liqs[m.liqId], v = lr ? vehiculo(lr.vehId) || {} : {};
