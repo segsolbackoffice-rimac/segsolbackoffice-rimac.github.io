@@ -133,6 +133,7 @@
   .imp-b .vh input{padding:4px 6px;font-weight:700;color:#2b3a75}
   .imp-b table{table-layout:fixed} .imp-b td{padding:4px 6px} .imp-b select,.imp-b td input{font-size:12px;padding:4px 6px;width:100%}
   .mini{font-size:11.5px;padding:3px 9px;border-radius:7px}
+  table.resumen td{font-size:13.5px} table.resumen tr.tot td{background:var(--head);font-size:14.5px}
   a.btnlink{display:inline-block;text-decoration:none;font-weight:500;border-radius:8px;padding:7px 13px;border:1px solid var(--line)}
   a.btnlink.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
   .vrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:4px 6px;border-radius:6px;cursor:pointer}
@@ -535,6 +536,48 @@ function mapaAjustes(l) {
   return m;
 }
 // unidades por paquete de un producto: la que se escribió en la liquidación, la última usada para ese código, o 1
+function seccionParches(l, c) {
+  const prods = (l.pdf ? l.pdf.lineas : []).filter(x => x.seccion === "Productos");
+  const d = difProductos(l, mapaAjustes(l));
+  const conSob = prods.filter(x => d[x.codigo] > 0), conFal = prods.filter(x => d[x.codigo] < 0);
+  if (!c.parches.length && !(conSob.length && conFal.length) && !l.parchesManual) return "";
+  const nom = cod => { const x = prods.find(p => p.codigo === cod); return x ? `${esc(cod)} — ${esc(x.nombre)}` : esc(cod); };
+  const rb = cod => { const x = prods.find(p => p.codigo === cod), r = x && rubroProd(x.nombre); return r ? r.txt : "—"; };
+  const ed = l.estado !== "cerrada";
+  return `<h3>🔄 Parches de productos <span class="tag azul">${c.parches.length}</span>
+      ${ed ? `<label style="margin-left:auto;font-weight:500;font-size:12.5px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="chkParchar" ${l.parchar === false && !l.parchesManual ? "" : "checked"}> Parchar sobrantes con faltantes</label>` : ""}</h3>
+    <p class="ayuda" style="margin-top:0">Un sobrante cubre un faltante del <b>mismo rubro y gramaje</b> (misma medida y mismo paquete, ej. 473 ml × 6): esas unidades no se cobran. ${l.parchesManual ? "<b>Parches editados a mano.</b>" : "Se calculan solos; puedes cambiarlos."}</p>
+    ${c.parches.length ? `<div class="card scroll" style="padding:0"><table><thead><tr><th>Sobrante</th><th>Faltante que cubre</th><th>Rubro / gramaje</th><th class="num">Paquetes</th><th></th></tr></thead><tbody>
+      ${c.parches.map((p, i) => `<tr><td><span class="tag pos">+</span> ${nom(p.sob)}</td><td><span class="tag neg">−</span> ${nom(p.fal)}</td><td>${rb(p.sob)}${rb(p.sob) !== rb(p.fal) ? ` / ${rb(p.fal)}` : ""}</td>
+        <td class="num">${ed ? `<input class="precio" type="number" min="1" step="1" data-parq="${i}" value="${p.cant}">` : p.cant}</td>
+        <td>${ed ? `<button class="x" data-parx="${i}" title="Quitar parche">✕</button>` : ""}</td></tr>`).join("")}
+    </tbody></table></div>` : ""}
+    ${ed && conSob.length && conFal.length ? `<div class="row" style="margin-top:8px">
+      <label class="f grow">Sobrante<select id="parS">${conSob.map(x => `<option value="${esc(x.codigo)}">${esc(x.codigo)} — ${esc(x.nombre)} (+${d[x.codigo]})</option>`).join("")}</select></label>
+      <label class="f grow">Faltante<select id="parF">${conFal.map(x => `<option value="${esc(x.codigo)}">${esc(x.codigo)} — ${esc(x.nombre)} (${d[x.codigo]})</option>`).join("")}</select></label>
+      <label class="f">Paquetes<input id="parC" type="number" min="1" step="1" value="1" style="width:90px"></label>
+      <button id="parAdd">+ Agregar parche</button>
+      ${l.parchesManual ? `<button id="parAuto">Volver al cálculo automático</button>` : ""}</div>` : (ed && l.parchesManual ? `<div class="row" style="margin-top:8px"><button id="parAuto">Volver al cálculo automático</button></div>` : "")}`;
+}
+function enlazarParches(l, c) {
+  const h = $("hoja");
+  const manual = () => { l.parches = c.parches.map(p => ({ ...p })); l.parchesManual = true; };
+  const fin = () => { guardar(); pintarPanel(); render(); };
+  const cp = $("chkParchar");
+  if (cp) cp.onchange = () => { if (cp.checked) { l.parchar = true; l.parchesManual = false; l.parches = []; } else { l.parchar = false; l.parchesManual = false; l.parches = []; } fin(); };
+  h.querySelectorAll("[data-parq]").forEach(inp => inp.onchange = () => { manual(); const v = Math.round(+inp.value); if (v >= 1) l.parches[+inp.dataset.parq].cant = v; fin(); });
+  h.querySelectorAll("[data-parx]").forEach(b => b.onclick = () => { manual(); l.parches.splice(+b.dataset.parx, 1); fin(); });
+  const add = $("parAdd");
+  if (add) add.onclick = () => {
+    const sob = $("parS").value, fal = $("parF").value, q = Math.round(+$("parC").value);
+    if (!(q >= 1)) return toast("Indica cuántos paquetes cubre.");
+    const d = difProductos(l, mapaAjustes(l)), usados = cod => c.parches.filter(p => p.sob === cod || p.fal === cod).reduce((a, p) => a + p.cant, 0);
+    if (q > d[sob] - usados(sob)) return toast(`El sobrante disponible de ${sob} es ${d[sob] - usados(sob)}.`);
+    if (q > -d[fal] - usados(fal)) return toast(`El faltante pendiente de ${fal} es ${-d[fal] - usados(fal)}.`);
+    manual(); l.parches.push({ sob, fal, cant: q }); fin();
+  };
+  const au = $("parAuto"); if (au) au.onclick = () => { l.parchesManual = false; l.parches = []; l.parchar = true; fin(); };
+}
 function factorProd(l, ln) {
   const f = (l.factorProd || {})[ln.codigo] ?? (S.factorProd || {})[ln.codigo];
   return f > 0 ? +f : 1;
@@ -544,31 +587,68 @@ function factorSugerido(nombre) {
   const n = String(nombre).toUpperCase(), m = n.match(/\b(\d{1,2})\s*P?\s*X\s*1\b/) || n.match(/\bRT\s+(\d{1,2})\b/) || n.match(/\bX\s*(\d{1,2})\b/);
   return m && +m[1] > 1 ? +m[1] : null;
 }
+// ---------- Parches de productos: un sobrante cubre un faltante del mismo rubro y gramaje
+// (ej. sobra 1 six pack Pilsen 473 ml y falta 1 six pack Cusqueña 473 ml → no hay diferencia)
+function rubroProd(nombre) {
+  const n = String(nombre).toUpperCase();
+  let m = n.match(/(\d{3,4})\s*ML/) || n.match(/\b(\d{3,4})\b(?!\s*[X\/])/);
+  const ml = m ? +m[1] : null;
+  m = n.match(/\b(\d{1,2})\s*P?\s*X\s*1\b/) || n.match(/\b(\d{1,2})\s*P\b/) || n.match(/\bRT\s+(\d{1,2})\b/) || n.match(/\bX\s*(\d{1,2})\b/);
+  const pack = m ? +m[1] : 1;
+  const env = /\bPET\b/.test(n) ? "PET" : /\bRT\b/.test(n) ? "RT" : /\b(LATA|AL|SLK)\b/.test(n) ? "LATA" : "";
+  return ml ? { clave: ml + "|" + pack, ml, pack, env, txt: `${ml} ml${pack > 1 ? " × " + pack : ""}${env ? " " + env : ""}` } : null;
+}
+function difProductos(l, AJ) {      // diferencia de cada producto después de ZPD7/ZPD4
+  const d = {};
+  (l.pdf ? l.pdf.lineas : []).filter(x => x.seccion === "Productos").forEach(x => { d[x.codigo] = (d[x.codigo] || 0) + x.diferencia + (AJ["Productos|" + x.codigo] || 0); });
+  return d;
+}
+function parchesAuto(l, AJ) {
+  const d = difProductos(l, AJ), info = {};
+  (l.pdf ? l.pdf.lineas : []).filter(x => x.seccion === "Productos").forEach(x => info[x.codigo] = rubroProd(x.nombre));
+  const out = [], sob = {}, fal = {};
+  Object.keys(d).forEach(c => { if (d[c] > 0) sob[c] = d[c]; else if (d[c] < 0) fal[c] = -d[c]; });
+  Object.keys(sob).forEach(cs => {
+    const rs = info[cs]; if (!rs) return;
+    Object.keys(fal).forEach(cf => {
+      const rf = info[cf]; if (!rf || rf.clave !== rs.clave || (rs.env && rf.env && rs.env !== rf.env)) return;
+      const q = Math.min(sob[cs], fal[cf]); if (q <= 0) return;
+      out.push({ sob: cs, fal: cf, cant: q }); sob[cs] -= q; fal[cf] -= q;
+    });
+  });
+  return out;
+}
+const parchesDe = (l, AJ) => l.parchesManual ? (l.parches || []) : (l.parchar === false ? [] : parchesAuto(l, AJ || mapaAjustes(l)));
 function calcBase(l) {
   const P = l.estado === "cerrada" && l.precios ? l.precios : S.precios;
-  const r = { lineas: [], bot: 0, caj: 0, prod: 0, sobr: 0, falt: 0, prodMonto: 0, prodSinPrecio: 0 };
+  const r = { lineas: [], bot: 0, caj: 0, prod: 0, sobr: 0, falt: 0, prodMonto: 0, prodSinPrecio: 0, vac: { sobr: 0, falt: 0 }, liq: { sobr: 0, falt: 0 } };
   const AJ = mapaAjustes(l);
+  const PAR = {}, parches = parchesDe(l, AJ);
+  parches.forEach(p => { PAR[p.sob] = (PAR[p.sob] || 0) - p.cant; PAR[p.fal] = (PAR[p.fal] || 0) + p.cant; });
+  r.parches = parches;
   for (const lnPdf of (l.pdf ? l.pdf.lineas : [])) {
     const aj = AJ[lnPdf.seccion + "|" + lnPdf.codigo] || 0;
-    if (!lnPdf.diferencia && !aj) continue;
-    const ln = { ...lnPdf, difPdf: lnPdf.diferencia, ajuste: aj, diferencia: lnPdf.diferencia + aj };
+    const pa = lnPdf.seccion === "Productos" ? (PAR[lnPdf.codigo] || 0) : 0;
+    if (!lnPdf.diferencia && !aj && !pa) continue;
+    const ln = { ...lnPdf, difPdf: lnPdf.diferencia, ajuste: aj, parche: pa, diferencia: lnPdf.diferencia + aj + pa };
     const x = { ...ln, tipo: "", precio: null, dinero: null };
     if (ln.seccion === "Vacíos") {
       const e = infoEnvase(ln.nombre, P); x.tipo = e.tipo; x.precio = e.precio;
-      if (e.precio != null) { x.dinero = r2(ln.diferencia * e.precio); if (x.dinero > 0) r.sobr += x.dinero; else r.falt += x.dinero; }
+      if (e.precio != null) { x.dinero = r2(ln.diferencia * e.precio); if (x.dinero > 0) { r.sobr += x.dinero; r.vac.sobr += x.dinero; } else { r.falt += x.dinero; r.vac.falt += x.dinero; } }
       if (e.tipo === "Caja") r.caj += ln.diferencia; else if (e.tipo.startsWith("Botella")) r.bot += ln.diferencia;
     } else if (ln.seccion === "Productos") {
       r.prod += ln.diferencia;
       if (l.incluirProductos) {
         const pr = (l.preciosProd || {})[ln.codigo];
         x.factor = factorProd(l, ln); x.unidades = ln.diferencia * x.factor;
-        if (pr != null && pr !== "") { x.precio = +pr; x.dinero = r2(x.unidades * pr); if (x.dinero > 0) r.sobr += x.dinero; else r.falt += x.dinero; r.prodMonto += x.dinero; }
-        else r.prodSinPrecio++;
+        if (pr != null && pr !== "") { x.precio = +pr; x.dinero = r2(x.unidades * pr); if (x.dinero > 0) { r.sobr += x.dinero; r.liq.sobr += x.dinero; } else { r.falt += x.dinero; r.liq.falt += x.dinero; } r.prodMonto += x.dinero; }
+        else if (ln.diferencia) r.prodSinPrecio++;
       }
     }
     r.lineas.push(x);
   }
   r.sobr = r2(r.sobr); r.falt = r2(r.falt); r.prodMonto = r2(r.prodMonto);
+  ["vac", "liq"].forEach(k => { r[k].sobr = r2(r[k].sobr); r[k].falt = r2(r[k].falt); r[k].neto = r2(r[k].sobr + r[k].falt); });
   r.neto = r2(r.sobr + r.falt);
   r.aCobrar = r.neto < 0 ? r2(-r.neto) : 0;
   r.aFavor = r.neto > 0 ? r.neto : 0;
@@ -913,7 +993,9 @@ function tablaSeccion(nombre, existe, lineas, modo, l) {
   let extra = "";
   if (nombre === "Productos" && ls.length) {
     extra = `<label style="margin-left:auto;font-weight:500;font-size:12.5px;display:flex;gap:6px;align-items:center">
-      <input type="checkbox" id="chkProd" ${l.incluirProductos ? "checked" : ""} ${l.estado === "cerrada" ? "disabled" : ""}> Cobrar productos (opcional)</label>`;
+      <input type="checkbox" id="chkProd" ${l.incluirProductos ? "checked" : ""} ${l.estado === "cerrada" ? "disabled" : ""}> Cobrar productos (opcional)</label>
+      ${l.incluirProductos ? `<label style="font-weight:500;font-size:12.5px;display:flex;gap:6px;align-items:center;margin-left:14px">
+        <input type="checkbox" id="chkFactor" ${l.editarFactor ? "checked" : ""} ${l.estado === "cerrada" ? "disabled" : ""}> Editar unidades por paquete</label>` : ""}`;
   }
   if (!ls.length) return `<h3>${nombre} ${tag}</h3>`;
   const conDinero = modo === "vacios" || (modo === "productos" && l.incluirProductos);
@@ -923,12 +1005,12 @@ function tablaSeccion(nombre, existe, lineas, modo, l) {
     ${prod ? `<th class="num">Unid. por paquete</th><th class="num">Unidades</th><th class="num">Precio x unidad</th><th class="num">Dinero</th>`
       : conDinero ? `<th>Tipo</th><th class="num">Precio</th><th class="num">Dinero</th>` : ""}</tr></thead><tbody>
     ${ls.map(x => `<tr><td>${esc(x.codigo)}</td><td>${esc(x.nombre)}</td><td class="num">${x.conductor}</td><td class="num">${x.sistema}</td>
-      <td class="num"><span class="tag ${cls(x.diferencia)}">${und(x.diferencia)}</span>${x.ajuste ? `<br><small class="ayuda" style="white-space:nowrap">PDF ${und(x.difPdf)} · ZPD ${und(x.ajuste)}</small>` : ""}</td>
-      ${prod ? `<td class="num">${editable ? `<input class="precio" type="number" step="1" min="1" data-fac="${esc(x.codigo)}" value="${x.factor}" title="Ej. six pack = 6">`
+      <td class="num"><span class="tag ${cls(x.diferencia)}">${und(x.diferencia)}</span>${x.ajuste || x.parche ? `<br><small class="ayuda" style="white-space:nowrap">PDF ${und(x.difPdf)}${x.ajuste ? " · ZPD " + und(x.ajuste) : ""}${x.parche ? " · parche " + und(x.parche) : ""}</small>` : ""}</td>
+      ${prod ? `<td class="num">${editable && l.editarFactor ? `<input class="precio" type="number" step="1" min="1" data-fac="${esc(x.codigo)}" value="${x.factor}" title="Ej. six pack = 6">`
           + (factorSugerido(x.nombre) && factorSugerido(x.nombre) !== x.factor ? `<br><a href="#" data-sugf="${esc(x.codigo)}|${factorSugerido(x.nombre)}" style="font-size:11px">usar ${factorSugerido(x.nombre)}</a>` : "") : x.factor}</td>
         <td class="num"><b class="${cls(x.unidades)}">${und(x.unidades)}</b></td>
         <td class="num">${editable ? `<input class="precio" type="number" step="0.01" min="0" data-cod="${esc(x.codigo)}" value="${x.precio ?? ""}" placeholder="S/">` : (x.precio == null ? "—" : x.precio.toFixed(2))}</td>
-        <td class="num ${cls(x.dinero || 0)}">${x.dinero == null ? "Sin precio" : soles(x.dinero)}</td>`
+        <td class="num ${cls(x.dinero || 0)}">${x.dinero == null ? (x.diferencia ? "Sin precio" : "—") : soles(x.dinero)}</td>`
       : conDinero ? `<td>${esc(x.tipo || (modo === "productos" ? "Producto" : ""))}</td>
         <td class="num">${x.precio == null ? "—" : x.precio.toFixed(2)}</td>
         <td class="num ${cls(x.dinero || 0)}">${x.dinero == null ? "Sin precio" : soles(x.dinero)}</td>` : ""}
@@ -968,13 +1050,18 @@ function pintarPanel() {
     <div class="kpis">
       <div class="kpi"><span>Botellas (neto)</span><b class="${cls(c.bot)}">${und(c.bot)}</b></div>
       <div class="kpi"><span>Cajas (neto)</span><b class="${cls(c.caj)}">${und(c.caj)}</b></div>
-      <div class="kpi"><span>Sobrante</span><b class="pos">${soles(c.sobr)}</b></div>
-      <div class="kpi"><span>Faltante</span><b class="neg">${soles(c.falt)}</b></div>
-      <div class="kpi"><span>Neto</span><b class="${cls(c.neto)}">${soles(c.neto)}</b></div>
+      <div class="kpi"><span>Productos (neto, paquetes)</span><b class="${cls(c.prod)}">${und(c.prod)}</b></div>
     </div>
+    <div class="card scroll" style="padding:0"><table class="resumen"><thead><tr><th>Resumen</th><th class="num">Sobrante</th><th class="num">Faltante</th><th class="num">Neto</th></tr></thead><tbody>
+      <tr><td>🍾 Vacíos (envases)</td><td class="num pos">${soles(c.vac.sobr)}</td><td class="num neg">${soles(c.vac.falt)}</td><td class="num ${cls(c.vac.neto)}"><b>${soles(c.vac.neto)}</b></td></tr>
+      <tr><td>🍺 Líquido (productos)${l.incluirProductos ? "" : ` <small class="ayuda">— no se cobra (activa “Cobrar productos”)</small>`}</td>
+        <td class="num pos">${soles(c.liq.sobr)}</td><td class="num neg">${soles(c.liq.falt)}</td><td class="num ${cls(c.liq.neto)}"><b>${soles(c.liq.neto)}</b></td></tr>
+      <tr class="tot"><td><b>Total</b></td><td class="num pos"><b>${soles(c.sobr)}</b></td><td class="num neg"><b>${soles(c.falt)}</b></td><td class="num ${cls(c.neto)}"><b>${soles(c.neto)}</b></td></tr>
+    </tbody></table></div>
     ${tablaSeccion("Productos", secs.has("Productos"), c.lineas, "productos", l)}
-    ${l.incluirProductos && c.lineas.some(x => x.seccion === "Productos") ? `<p class="ayuda" style="margin:4px 0 0">La diferencia del PDF viene en paquetes. Indica cuántas unidades trae cada paquete (six pack = 6) y el precio por unidad: Unidades = diferencia × unidades por paquete.</p>` : ""}
+    ${l.incluirProductos && c.lineas.some(x => x.seccion === "Productos") ? `<p class="ayuda" style="margin:4px 0 0">La diferencia del PDF viene en paquetes: Unidades = diferencia × unidades por paquete. Para cambiar las unidades por paquete (six pack = 6), marca “Editar unidades por paquete”.</p>` : ""}
     ${l.incluirProductos && c.prodSinPrecio ? `<p class="ayuda m-warn">Hay ${c.prodSinPrecio} producto(s) sin precio: no suman al cobro hasta que les pongas precio.</p>` : ""}
+    ${seccionParches(l, c)}
     ${tablaSeccion("Bloqueados", secs.has("Bloqueados"), c.lineas, "otros", l)}
     ${tablaSeccion("Vacíos", secs.has("Vacíos"), c.lineas, "vacios", l)}
     ${(() => { const sp = c.lineas.filter(x => x.seccion === "Vacíos" && x.precio == null); return sp.length ? `<p class="ayuda m-warn">⚠ ${sp.length} envase(s) sin precio no suman al cobro: ${sp.map(x => esc(x.nombre)).join(", ")}. No se pudo saber si es caja o botella ni su medida.</p>` : ""; })()}
@@ -996,6 +1083,8 @@ function pintarPanel() {
   }
   const pc = $("pCambiar");
   if (pc) pc.onclick = ev => { ev.preventDefault(); FECHA_PDF(l); $("filePdf").dataset.veh = l.vehId; $("filePdf").dataset.n = nv(l); $("filePdf").click(); };
+  const chkF = $("chkFactor");
+  if (chkF) chkF.onchange = () => { l.editarFactor = chkF.checked; guardar(); pintarPanel(); };
   const chk = $("chkProd");
   if (chk) chk.onchange = () => { l.incluirProductos = chk.checked; guardar(); pintarPanel(); render(); };
   const setFactor = (cod, v) => {
@@ -1018,6 +1107,7 @@ function pintarPanel() {
     });
     if (cambio) { guardar(); pintarPanel(); return; }
   }
+  enlazarParches(l, c);
   enlazarAjustes(l);
   enlazarCobro(l, c, trip);
 }
@@ -2182,9 +2272,11 @@ function filasLiq(ls) {
   return ls.map(l => { const c = calc(l), v = vehiculo(l.vehId) || {}, e = l.pdf.enc;
     return [fmtF(l.fecha), v.placa, v.bk, e.viaje, e.placa, e.conductor, e.revisor, tripLiq(l).map(t => `${t.nombre} (${t.funcion})`).join(", "),
       l.estado === "cerrada" ? "Cerrada" : "En proceso", c.bot, c.caj, c.sobr, c.falt, c.neto, c.aFavor, c.credito, c.aCobrar, c.pagado, c.descontado, c.pendiente,
-      (l.ajustes || []).filter(a => a.codigo !== "COMENTARIO").map(a => `${a.codigo} ${a.cantidad} ${a.codigoMat}`).join("; "), l.comentarioCierre || "", nv(l)]; });
+      (l.ajustes || []).filter(a => a.codigo !== "COMENTARIO").map(a => `${a.codigo} ${a.cantidad} ${a.codigoMat}`).join("; "), l.comentarioCierre || "", nv(l),
+      c.vac.sobr, c.vac.falt, c.vac.neto, c.liq.sobr, c.liq.falt, c.liq.neto]; });
 }
-const COLS_LIQ = ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Placa PDF", "Conductor PDF", "Revisor", "Tripulación", "Estado", "Botellas", "Cajas", "Sobrante S/", "Faltante S/", "Neto S/", "Sobrante a favor S/", "Saldo a favor aplicado S/", "A cobrar S/", "Pagado S/", "Descuento S/", "Pendiente S/", "Ajustes ZPD", "Comentario de cierre", "Viaje del día"];
+const COLS_LIQ = ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Placa PDF", "Conductor PDF", "Revisor", "Tripulación", "Estado", "Botellas", "Cajas", "Sobrante S/", "Faltante S/", "Neto S/", "Sobrante a favor S/", "Saldo a favor aplicado S/", "A cobrar S/", "Pagado S/", "Descuento S/", "Pendiente S/", "Ajustes ZPD", "Comentario de cierre", "Viaje del día",
+  "Vacíos sobrante S/", "Vacíos faltante S/", "Vacíos neto S/", "Líquido sobrante S/", "Líquido faltante S/", "Líquido neto S/"];
 function filasCobros(ls, tipo) {
   const out = [];
   ls.forEach(l => { const v = vehiculo(l.vehId) || {};
@@ -2218,7 +2310,7 @@ function exportarReporte(ls, desde, hasta) {
     filasCaja, [3, ...MEDIOS.map((_, i) => 4 + i), 4 + MEDIOS.length, 5 + MEDIOS.length, 6 + MEDIOS.length, 7 + MEDIOS.length]);
   wcaja.lastRow.font = { bold: true };
   wcaja.orderNo = -2;
-  hoja(wb, "Liquidaciones", COLS_LIQ, filasLiq(ls), [11, 12, 13, 14, 15, 16, 17, 18, 19], 13);
+  hoja(wb, "Liquidaciones", COLS_LIQ, filasLiq(ls), [11, 12, 13, 14, 15, 16, 17, 18, 19, 23, 24, 25, 26, 27, 28], 13);
   const filasPago = filasCobros(ls, "pago");
   hoja(wb, "Pagos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Pagó", "DNI", "Medio", "Nº operación", "Recibió", "Monto S/"], filasPago, [9]);
   const resp = {}; filasPago.forEach(r => { const k = r[8] || "(sin registrar)", o = resp[k] = resp[k] || { n: 0, t: 0, m: {} }; o.n++; o.t = r2(o.t + r[9]); o.m[r[6]] = r2((o.m[r[6]] || 0) + r[9]); });
