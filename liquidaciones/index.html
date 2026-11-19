@@ -1628,6 +1628,20 @@ function materialesInventario(secciones) {
     });
   return Object.values(mats).map(M => ({ ...M, neto: M.sob + M.fal, uNeto: M.uSob + M.uFal }));
 }
+// lo que ya se cobró (pagos + descuentos + saldo a favor/neteo) por vacíos o por productos en las liquidaciones del rango
+function cobradoInventario(rubro) {
+  let cob = 0, pend = 0;
+  Object.values(S.liqs).filter(l => l.pdf && l.fecha >= INV.desde && l.fecha <= INV.hasta && (!INV.estado || (INV.estado === "c" ? l.estado === "cerrada" : l.estado !== "cerrada")))
+    .forEach(l => {
+      const c = calc(l), dv = Math.max(0, -c.vac.neto), dl = Math.max(0, -c.liq.neto);
+      const sinRubro = (l.cobros || []).filter(x => !x.rubro).reduce((a, x) => a + x.monto, 0);
+      const parte = dv + dl ? (rubro === "vac" ? dv : dl) / (dv + dl) : (rubro === "vac" ? 1 : 0);    // pagos antiguos sin rubro: se reparten
+      const saldo = rubro === "vac" ? Math.min(c.credito, dv) : Math.min(Math.max(0, c.credito - dv), dl);
+      cob += c.rub[rubro].cubierto + sinRubro * parte + saldo;
+      pend += c.rub[rubro].pend;
+    });
+  return { cobrado: r2(cob), pendiente: r2(pend) };
+}
 const pasaTipo = neto => INV.tipo === "f" ? neto < 0 : INV.tipo === "s" ? neto > 0 : true;
 function filaMaterial(M, sangria) {
   const k = M.seccion + "|" + M.codigo, ab = INV.abierto.has(k), r = M.seccion === "Productos" ? rubroProd(M.nombre) : null, prod = M.seccion !== "Vacíos";
@@ -1663,7 +1677,11 @@ function vInventario(m) {
     kpis = `<div class="kpi"><span>Botellas (neto)</span><b class="${cls(netoClase("Botella"))}">${und(netoClase("Botella"))}</b></div>
       <div class="kpi"><span>Cajas (neto)</span><b class="${cls(netoClase("Caja"))}">${und(netoClase("Caja"))}</b></div>
       <div class="kpi"><span>Grupos con faltante</span><b class="neg">${todos.filter(X => X.neto < 0).length}</b></div>
-      <div class="kpi"><span>Valor neto</span><b class="${cls(valorNeto)}">${soles(valorNeto)}</b></div>`;
+      <div class="kpi"><span>Valor neto de vacíos</span><b class="${cls(valorNeto)}">${soles(valorNeto)}</b></div>
+      ${(() => { const k = cobradoInventario("vac"), res = r2(valorNeto + k.cobrado);
+        return `<div class="kpi"><span>Ya cobrado (pagos, descuentos y saldo)</span><b class="pos">${soles(k.cobrado, false)}</b></div>
+          <div class="kpi"><span>Resultado (neto + cobrado)</span><b class="${res < -0.004 ? "neg" : "pos"}">${Math.abs(res) < 0.005 ? "S/ 0.00 ✔" : soles(res)}</b></div>
+          <div class="kpi"><span>Por cobrar</span><b class="${k.pendiente ? "neg" : "pos"}">${soles(k.pendiente, false)}</b></div>`; })()}`;
     cuerpo = hayDatos ? `<table><thead><tr><th>Tipo de envase</th><th>Materiales</th><th class="num">Sobrante</th><th class="num">Faltante</th><th class="num">Neto (parchado)</th><th class="num">Valor neto</th><th class="num">Liquid.</th></tr></thead><tbody>
       ${grupos.map(X => { const k = "G|" + X.clave, ab = INV.abierto.has(k);
         return `<tr class="click" data-invk="${esc(k)}" style="background:#fafbff"><td><b>${ab ? "▾" : "▸"} ${esc(X.nombre)}</b></td><td style="font-size:12px">${X.mats.map(M => esc(M.codigo)).join(", ")}</td>
@@ -1694,7 +1712,9 @@ function vInventario(m) {
       <div class="kpi"><span>Faltante (paquetes)</span><b class="neg">${und(sum("fal"))}</b></div>
       <div class="kpi"><span>Faltante (unidades)</span><b class="neg">${und(sum("uFal"))}</b></div>
       <div class="kpi"><span>Sobrante (paquetes)</span><b class="pos">${und(sum("sob"))}</b></div>
-      <div class="kpi"><span>Valor faltante</span><b class="neg">${soles(valorFal)}</b></div>`;
+      <div class="kpi"><span>Valor faltante</span><b class="neg">${soles(valorFal)}</b></div>
+      ${(() => { const k = cobradoInventario("liq"); return `<div class="kpi"><span>Ya cobrado de productos</span><b class="pos">${soles(k.cobrado, false)}</b></div>
+        <div class="kpi"><span>Por cobrar de productos</span><b class="${k.pendiente ? "neg" : "pos"}">${soles(k.pendiente, false)}</b></div>`; })()}`;
     cuerpo = hayDatos ? `<table><thead><tr><th>Código</th><th>Descripción</th><th class="num">Sobrante</th><th class="num">Faltante</th><th class="num">Neto</th><th class="num">Unidades</th><th class="num">Valor</th><th class="num">Liquid.</th></tr></thead><tbody>
       ${D.map(M => filaMaterial(M, false)).join("")}</tbody></table>` : "";
     excel = () => {
@@ -1718,7 +1738,7 @@ function vInventario(m) {
       <label class="f grow">Buscar (${vac ? "envase" : "producto"}, código, placa, BK, viaje, nombre o DNI)<input id="iQ" value="${esc(INV.q)}" placeholder="${vac ? "Ej. 630ML, 3500323, BMX-740" : "Ej. 14259, PILSEN 473, BMX-740"}"></label>
       <button class="primary" id="iExcel" ${hayDatos ? "" : "disabled"}>Exportar Excel</button>
     </div><p class="ayuda" style="margin:8px 0 0">${vac
-      ? "Vacíos <b>parchados</b>: los sobrantes compensan los faltantes del mismo tipo de envase y medida (por ejemplo, botellas de 620, 630 y 650 ml entre sí; botellas de 1 litro entre sí; cajas ×12 de esas botellas entre sí). El neto es lo que realmente falta o sobra. Haz clic en un tipo para ver sus materiales y en un material para ver en qué liquidaciones se produjo."
+      ? "Vacíos <b>parchados</b>: los sobrantes compensan los faltantes del mismo tipo de envase y medida (por ejemplo, botellas de 620, 630 y 650 ml entre sí; botellas de 1 litro entre sí; cajas ×12 de esas botellas entre sí). El neto es lo que realmente falta o sobra <b>en envases</b>; el valor neto suma todos los tipos (también los que tienen sobrante, aunque el filtro los oculte). “Ya cobrado” muestra lo que ese faltante ya se recuperó con pagos, descuentos o saldo a favor. Haz clic en un tipo para ver sus materiales y en un material para ver en qué liquidaciones se produjo."
       : "Productos por material, sin mezclar con vacíos: lo que queda después de los ajustes ZPD7/ZPD4 y de los parches entre productos del mismo rubro y gramaje de cada liquidación. Haz clic en un material para ver en qué liquidaciones y con qué tripulación se produjo."}</p></div>
     <div class="kpis">${kpis}</div>
     <div class="card scroll">${cuerpo || `<div class="vacio">No hay ${INV.tipo === "f" ? "faltantes" : INV.tipo === "s" ? "sobrantes" : "diferencias"} en este rango.</div>`}</div>`;
