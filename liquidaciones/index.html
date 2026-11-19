@@ -1038,7 +1038,7 @@ function pintarPanel() {
   $("panel").classList.add("on");
   $("hoja").innerHTML = `
     <div class="ptop"><h2>Detalle de liquidación — ${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""} — Viaje ${nv(l)}</h2>
-      <div class="row">${estadoTag(l)} <button id="pCerrar">✕ Cerrar</button></div></div>
+      <div class="row">${estadoTag(l)} ${l.pdf ? `<button class="danger" id="pEliminar" title="Solo con la contraseña de administrador">🗑 Eliminar liquidación</button>` : ""} <button id="pCerrar">✕ Cerrar</button></div></div>
     <div class="tabs"><div class="seg">${(() => { const ls = liqsDe(l.fecha, l.vehId).filter(x => x.pdf || x.id === l.id); const sig = Math.max(0, ...liqsDe(l.fecha, l.vehId).map(nv)) + 1;
       return ls.map(x => `<button data-tabv="${nv(x)}" class="${x.id === l.id ? "on" : ""}">Viaje ${nv(x)}${x.pdf ? ` · ${esc(x.pdf.enc.viaje)}` : ""}</button>`).join("")
         + (l.pdf ? `<button data-tabv="${sig}">➕ Viaje ${sig}</button>` : ""); })()}</div>
@@ -1084,6 +1084,7 @@ function pintarPanel() {
     ${seccionCobro(l, c, trip)}`}`;
 
   $("pCerrar").onclick = cerrarPanel;
+  const pe = $("pEliminar"); if (pe) pe.onclick = () => eliminarLiquidacion(l);
   $("hoja").querySelectorAll("[data-tabv]").forEach(b => b.onclick = () => abrirLiq(l.fecha, l.vehId, +b.dataset.tabv));
   const pd = $("pDrop");
   if (pd) {
@@ -2023,6 +2024,35 @@ function modalClave({ titulo, texto, crear }) {
 async function hashClave(t) {
   const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("segsol-liq|" + t));
   return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
+}
+function confirmar(titulo, html, textoBoton) {
+  return new Promise(res => {
+    const el = $("elige");
+    el.innerHTML = `<div class="hoja" style="max-width:520px"><h2 style="color:var(--red)">${titulo}</h2><div style="font-size:13.5px">${html}</div>
+      <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="cfNo">Cancelar</button><button class="primary" id="cfSi" style="background:var(--red);border-color:var(--red)">${textoBoton}</button></div></div>`;
+    el.classList.add("on");
+    const fin = v => { el.classList.remove("on"); el.innerHTML = ""; res(v); };
+    $("cfNo").onclick = () => fin(false); $("cfSi").onclick = () => fin(true);
+  });
+}
+async function eliminarLiquidacion(l) {
+  const v = vehiculo(l.vehId) || {}, c = calc(l), F = libro().fuentes;
+  if (!(await asegurarAdmin(`Ingresa la contraseña de administrador para eliminar la liquidación de ${v.placa || ""} — Viaje ${nv(l)} (${fmtF(l.fecha)}).`))) return;
+  const netos = (S.saldosManuales || []).filter(m => m.liqId === l.id);
+  const usado = [F[l.id], ...netos.map(m => F["m:" + m.id])].filter(Boolean).some(f => f.usos.some(u => u.l.id !== l.id && u.l.estado === "cerrada"));
+  const ok = await confirmar("🗑 Eliminar liquidación", `
+    <p>Se eliminará <b>definitivamente</b> la liquidación de <b>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""} — Viaje ${nv(l)}</b> del ${fmtF(l.fecha)} (Nº de viaje ${esc(l.pdf ? l.pdf.enc.viaje : "")}).</p>
+    <ul style="margin:6px 0 0 18px;padding:0">
+      <li>${(l.cobros || []).filter(x => x.tipo === "pago").length} pago(s) por ${soles(c.pagado, false)} y ${(l.cobros || []).filter(x => x.tipo === "descuento").length} descuento(s) por ${soles(c.descontado, false)}.</li>
+      <li>${(l.ajustes || []).length} ajuste(s) ZPD / correo / comentario${netos.length ? ` y ${netos.length} neteo(s)` : ""}.</li>
+    </ul>
+    ${usado ? `<p class="m-warn">⚠ Su saldo a favor ya se usó en otra liquidación cerrada; esa liquidación conservará lo aplicado.</p>` : ""}
+    <p class="ayuda">Esta acción no se puede deshacer. Si quieres conservar una copia, descarga antes un respaldo en Configuración.</p>`, "Eliminar definitivamente");
+  if (!ok) return;
+  delete S.liqs[l.id];
+  S.saldosManuales = (S.saldosManuales || []).filter(m => m.liqId !== l.id);
+  LIQ_ABIERTA = null; $("panel").classList.remove("on");
+  guardar(); render(); toast(`Liquidación de ${v.placa} — Viaje ${nv(l)} eliminada.`);
 }
 async function asegurarAdmin(motivo) {
   if (!S.adminHash) {
