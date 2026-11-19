@@ -1597,10 +1597,16 @@ function vReporte(m) {
 // =====================================================================
 // VISTA: Inventario — diferencias finales por material (después de ZPD7/ZPD4 y parches)
 // =====================================================================
-let INV = { tab: "vac", desde: null, hasta: null, q: "", seccion: "Productos", tipo: "f", estado: "", abierto: new Set() };
+let INV = { tab: "vac", modoVac: "precio", desde: null, hasta: null, q: "", seccion: "Productos", tipo: "f", estado: "", abierto: new Set() };
 // grupos de vacíos que se compensan entre sí: misma clase de envase y medida (botellas 620/630/650 ml, cajas ×12 de esas botellas, etc.)
 function grupoVacio(nombre) {
   const e = infoEnvase(nombre, S.precios), n = String(nombre).toUpperCase();
+  if (INV.modoVac === "precio") {   // igual que la liquidación: se compensan los envases que valen lo mismo
+    if (e.tipo === "Caja") return { clave: "P|CAJA", nombre: `Cajas (S/ ${S.precios.caja.toFixed(2)})`, clase: "Caja" };
+    if (e.tipo.startsWith("Botella") && e.precio != null)
+      return e.precio === S.precios.grande ? { clave: "P|BG", nombre: `Botellas de 600 ml o más (S/ ${S.precios.grande.toFixed(2)})`, clase: "Botella" }
+        : { clave: "P|BC", nombre: `Botellas de 599 ml o menos (S/ ${S.precios.chica.toFixed(2)})`, clase: "Botella" };
+  }
   const nums = (n.match(/\d{3,4}/g) || []).map(Number).filter(x => x >= 150 && x <= 3000);
   const ml = e.tipo.startsWith("Botella") ? (+e.tipo.replace(/[^\d.]/g, "") || nums[0]) : nums[0];
   const banda = !ml ? "" : ml < 400 ? "300–355 ml" : ml < 600 ? `${ml} ml` : ml < 700 ? "600–650 ml" : (ml >= 900 && ml <= 1200) ? "1 litro (1000–1100 ml)" : `${ml} ml`;
@@ -1733,12 +1739,16 @@ function vInventario(m) {
       <label class="f">Desde<input type="date" id="iD" value="${INV.desde}"></label>
       <label class="f">Hasta<input type="date" id="iH" value="${INV.hasta}"></label>
       ${vac ? "" : `<label class="f">Sección<select id="iS">${["Productos", "Bloqueados", "Activos"].map(x => `<option ${INV.seccion === x ? "selected" : ""}>${x}</option>`).join("")}</select></label>`}
+      ${vac ? `<label class="f">Compensar por<select id="iM"><option value="precio" ${INV.modoVac === "precio" ? "selected" : ""}>Precio (igual que la liquidación)</option><option value="medida" ${INV.modoVac === "medida" ? "selected" : ""}>Medida del envase (física)</option></select></label>` : ""}
       <label class="f">Mostrar<select id="iT"><option value="f" ${INV.tipo === "f" ? "selected" : ""}>${vac ? "Solo con faltante neto" : "Solo con faltante"}</option><option value="s" ${INV.tipo === "s" ? "selected" : ""}>${vac ? "Solo con sobrante neto" : "Solo con sobrante"}</option><option value="" ${!INV.tipo ? "selected" : ""}>Todos</option></select></label>
       <label class="f">Liquidaciones<select id="iE"><option value="">Todas</option><option value="c" ${INV.estado === "c" ? "selected" : ""}>Solo cerradas</option><option value="e" ${INV.estado === "e" ? "selected" : ""}>Solo en proceso</option></select></label>
       <label class="f grow">Buscar (${vac ? "envase" : "producto"}, código, placa, BK, viaje, nombre o DNI)<input id="iQ" value="${esc(INV.q)}" placeholder="${vac ? "Ej. 630ML, 3500323, BMX-740" : "Ej. 14259, PILSEN 473, BMX-740"}"></label>
       <button class="primary" id="iExcel" ${hayDatos ? "" : "disabled"}>Exportar Excel</button>
     </div><p class="ayuda" style="margin:8px 0 0">${vac
-      ? "Vacíos <b>parchados</b>: los sobrantes compensan los faltantes del mismo tipo de envase y medida (por ejemplo, botellas de 620, 630 y 650 ml entre sí; botellas de 1 litro entre sí; cajas ×12 de esas botellas entre sí). El neto es lo que realmente falta o sobra <b>en envases</b>; el valor neto suma todos los tipos (también los que tienen sobrante, aunque el filtro los oculte). “Ya cobrado” muestra lo que ese faltante ya se recuperó con pagos, descuentos o saldo a favor. Haz clic en un tipo para ver sus materiales y en un material para ver en qué liquidaciones se produjo."
+      ? (INV.modoVac === "precio"
+        ? "Vacíos <b>parchados por precio</b>, igual que en la liquidación: una botella de 600 ml o más compensa a cualquier otra de 600 ml o más (S/ 0.60), una de 599 ml o menos a otra igual (S/ 0.50) y una caja a cualquier caja (S/ 3.80). Elige “Medida del envase” para ver qué envases faltan físicamente (por ejemplo, si devolvieron botellas de 630 ml en lugar de 1 litro)."
+        : "Vacíos <b>parchados por medida</b>: los sobrantes solo compensan faltantes del mismo tipo de envase y medida (botellas de 620, 630 y 650 ml entre sí; de 1 litro entre sí; cajas ×12 de esas botellas entre sí). Sirve para ver qué envases faltan físicamente aunque en dinero se compensen.")
+      + "  El neto es lo que realmente falta o sobra <b>en envases</b>; el valor neto suma todos los tipos (también los que tienen sobrante, aunque el filtro los oculte). “Ya cobrado” muestra lo que ese faltante ya se recuperó con pagos, descuentos o saldo a favor. Haz clic en un tipo para ver sus materiales y en un material para ver en qué liquidaciones se produjo."
       : "Productos por material, sin mezclar con vacíos: lo que queda después de los ajustes ZPD7/ZPD4 y de los parches entre productos del mismo rubro y gramaje de cada liquidación. Haz clic en un material para ver en qué liquidaciones y con qué tripulación se produjo."}</p></div>
     <div class="kpis">${kpis}</div>
     <div class="card scroll">${cuerpo || `<div class="vacio">No hay ${INV.tipo === "f" ? "faltantes" : INV.tipo === "s" ? "sobrantes" : "diferencias"} en este rango.</div>`}</div>`;
@@ -1747,6 +1757,7 @@ function vInventario(m) {
   $("iH").onchange = e => { INV.hasta = e.target.value; render(); };
   if ($("iS")) $("iS").onchange = e => { INV.seccion = e.target.value; render(); };
   $("iT").onchange = e => { INV.tipo = e.target.value; render(); };
+  if ($("iM")) $("iM").onchange = e => { INV.modoVac = e.target.value; INV.abierto.clear(); render(); };
   $("iE").onchange = e => { INV.estado = e.target.value; render(); };
   const q = $("iQ");
   q.oninput = () => { INV.q = q.value; clearTimeout(q._t); q._t = setTimeout(() => { const pos = q.selectionStart; render(); const n = $("iQ"); n.focus(); n.setSelectionRange(pos, pos); }, 300); };
