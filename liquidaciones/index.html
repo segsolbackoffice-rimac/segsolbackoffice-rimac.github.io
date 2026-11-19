@@ -619,7 +619,9 @@ function parchesAuto(l, AJ) {
   });
   return out;
 }
-const parchesDe = (l, AJ) => l.parchesManual ? (l.parches || []) : (l.parchar === false ? [] : parchesAuto(l, AJ || mapaAjustes(l)));
+const parchesDe = (l, AJ) => l.parchesManual ? (l.parches || [])
+  : l.estado === "cerrada" ? (l.parchesCierre || [])               // cerrada: se congela tal como se cerró
+  : (l.parchar === false ? [] : parchesAuto(l, AJ || mapaAjustes(l)));
 function calcBase(l) {
   const P = l.estado === "cerrada" && l.precios ? l.precios : S.precios;
   const r = { lineas: [], bot: 0, caj: 0, prod: 0, sobr: 0, falt: 0, prodMonto: 0, prodSinPrecio: 0, vac: { sobr: 0, falt: 0 }, liq: { sobr: 0, falt: 0 } };
@@ -1300,6 +1302,8 @@ function seccionCobro(l, c, trip) {
       ${c.rub.vac.deuda || c.rub.liq.deuda || c.rub.vac.cubierto || c.rub.liq.cubierto ? `<div style="font-size:12.5px;line-height:1.6">${["vac", "liq"].filter(k => c.rub[k].deuda || c.rub[k].cubierto).map(k =>
         `<b>${RUBROS[k]}:</b> a cobrar ${soles(c.rub[k].deuda, false)} · cubierto ${soles(c.rub[k].cubierto, false)} · <span class="${c.rub[k].pend > 0 ? "neg" : "pos"}">falta ${soles(c.rub[k].pend, false)}</span>`).join("<br>")}</div>` : ""}
       <div style="margin-left:auto" class="row">
+        ${cerrada && l.totalesCierre && (Math.abs(l.totalesCierre.aCobrar - c.aCobrar) > 0.005 || Math.abs(l.totalesCierre.neto - c.neto) > 0.005)
+          ? `<span class="tag warn" title="Al cerrar: neto ${soles(l.totalesCierre.neto)} · a cobrar ${soles(l.totalesCierre.aCobrar, false)}">⚠ Montos distintos al cierre</span>` : ""}
         ${cerrada ? `<span class="ayuda" style="margin:0">Cerrada el ${new Date(l.cerradaEn).toLocaleString("es-PE")}</span><button id="cReabrir">Reabrir</button>`
           : `<button class="ok" id="cCerrarLiq" ${c.pendiente === 0 ? "" : "disabled"} title="${c.pendiente > 0 ? "Falta cubrir el monto pendiente con pagos o descuentos" : ""}">✔ Cerrar liquidación</button>`}
       </div>
@@ -1453,6 +1457,8 @@ function enlazarCobro(l, c, trip) {
     LIBRO = null;
     const cc = calc(l); if (cc.pendiente !== 0) return;
     l.creditos = cc.creditos.map(u => ({ ...u }));
+    l.parchesCierre = cc.parches.map(p => ({ ...p }));
+    l.totalesCierre = { neto: cc.neto, aCobrar: cc.aCobrar, pagado: cc.pagado, descontado: cc.descontado, vac: cc.vac.neto, liq: cc.liq.neto };
     if (cm) l.comentarioCierre = cm.value.trim();
     l.estado = "cerrada"; l.cerradaEn = new Date().toISOString();
     l.precios = { ...S.precios }; l.tripulacion = tripLiq({ ...l, estado: "abierta" });
@@ -1463,7 +1469,7 @@ function enlazarCobro(l, c, trip) {
     if (!ra.dataset.ok) { ra.dataset.ok = 1; ra.textContent = "¿Seguro? Clic otra vez"; setTimeout(() => { if (ra.isConnected) { delete ra.dataset.ok; ra.textContent = "Reabrir"; } }, 3000); return; }
     const f = libro().fuentes[l.id];
     if (f && f.usos.some(u => u.l.estado === "cerrada")) return toast("Su saldo a favor ya se usó en otra liquidación cerrada. Reabre primero esa.");
-    l.estado = "abierta"; delete l.cerradaEn; delete l.creditos; guardar(); pintarPanel(); render();
+    l.estado = "abierta"; delete l.cerradaEn; delete l.creditos; delete l.parchesCierre; delete l.totalesCierre; guardar(); pintarPanel(); render();
   };
 }
 
