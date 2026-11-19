@@ -1468,11 +1468,17 @@ function enlazarCobro(l, c, trip) {
 // =====================================================================
 // VISTA: Reporte de pagos y descuentos
 // =====================================================================
-let REP = { desde: null, hasta: null, q: "" };
+let REP = { desde: null, hasta: null, q: "", aj: "" };
 function liqsRango(d, h) { return Object.values(S.liqs).filter(l => l.pdf && l.fecha >= d && l.fecha <= h).sort((a, b) => a.fecha.localeCompare(b.fecha) || (vehiculo(a.vehId)?.placa || "").localeCompare(vehiculo(b.vehId)?.placa || "")); }
 function vReporte(m) {
   REP.desde = REP.desde || FECHA; REP.hasta = REP.hasta || FECHA;
-  const ls = liqsRango(REP.desde, REP.hasta).filter(l => coincideTexto(REP.q, l, vehiculo(l.vehId) || {}, tripLiq(l)));
+  const lsTexto = liqsRango(REP.desde, REP.hasta).filter(l => coincideTexto(REP.q, l, vehiculo(l.vehId) || {}, tripLiq(l)));
+  // filtro por ajustes: ZPD7, ZPD4 o correo (pendiente / regularizado)
+  const cumpleAj = a => REP.aj === "ZPD7" || REP.aj === "ZPD4" ? a.codigo === REP.aj
+    : REP.aj === "CORREO" ? a.codigo === "CORREO" : REP.aj === "CORREO_P" ? a.codigo === "CORREO" && a.estado !== "regularizado"
+    : REP.aj === "CORREO_R" ? a.codigo === "CORREO" && a.estado === "regularizado" : ["ZPD7", "ZPD4", "CORREO"].includes(a.codigo);
+  const ls = REP.aj ? lsTexto.filter(l => (l.ajustes || []).some(cumpleAj)) : lsTexto;
+  const cuenta = k => lsTexto.reduce((n, l) => n + (l.ajustes || []).filter(a => k === "CORREO_P" ? a.codigo === "CORREO" && a.estado !== "regularizado" : a.codigo === k).length, 0);
   let aC = 0, pg = 0, ds = 0, sob = 0, fal = 0, fav = 0;
   const porMedio = {}, porPersona = {}, porColab = {}, porRecibe = {};
   ls.forEach(l => {
@@ -1497,6 +1503,14 @@ function vReporte(m) {
       <label class="f">Desde<input type="date" id="rDesde" value="${REP.desde}"></label>
       <label class="f">Hasta<input type="date" id="rHasta" value="${REP.hasta}"></label>
       <button id="rHoy">Hoy</button>
+      <label class="f">Ajustes<select id="rAj">
+        <option value="">Todos</option>
+        <option value="ZPD7" ${REP.aj === "ZPD7" ? "selected" : ""}>Con ZPD7 (${cuenta("ZPD7")})</option>
+        <option value="ZPD4" ${REP.aj === "ZPD4" ? "selected" : ""}>Con ZPD4 (${cuenta("ZPD4")})</option>
+        <option value="CORREO" ${REP.aj === "CORREO" ? "selected" : ""}>Con correo (${cuenta("CORREO")})</option>
+        <option value="CORREO_P" ${REP.aj === "CORREO_P" ? "selected" : ""}>Correo pendiente (${cuenta("CORREO_P")})</option>
+        <option value="CORREO_R" ${REP.aj === "CORREO_R" ? "selected" : ""}>Correo regularizado (${cuenta("CORREO") - cuenta("CORREO_P")})</option>
+      </select></label>
       <label class="f grow">Buscar (nombre, DNI, placa, nombre comercial o viaje)<input id="rQ" value="${esc(REP.q)}" placeholder="Ej. 45879632, BMX-740, BK3788"></label>
       <button class="primary" id="rExcel" ${ls.length ? "" : "disabled"}>Exportar Excel</button>
     </div></div>
@@ -1520,13 +1534,19 @@ function vReporte(m) {
       <tr><td colspan="3"><b>TOTAL</b></td><td class="num pos"><b>${soles(r2(pg), false)}</b></td><td class="num neg"><b>${soles(r2(ds), false)}</b></td><td class="num"><b>${soles(r2(pg + ds), false)}</b></td><td></td></tr>
       </tbody></table>` : `<div class="vacio">Aún no hay pagos ni descuentos registrados en este rango.</div>`}
     </div>
-    ${(() => { const cs = []; ls.forEach(l => (l.ajustes || []).filter(a => a.codigo === "CORREO").forEach(a => cs.push({ l, a, v: vehiculo(l.vehId) || {} })));
-      if (!cs.length) return "";
-      const pend = cs.filter(x => x.a.estado !== "regularizado").length;
-      return `<div class="card scroll"><h2>✉ Regularizaciones por correo <span class="tag ${pend ? "warn" : "pos"}">${pend} pendiente(s)</span></h2><table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Nº viaje</th><th>Material / descuento</th><th class="num">Cantidad</th><th>Estado</th><th></th></tr></thead><tbody>
-        ${cs.map(({ l, a, v }) => `<tr><td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}${etqViaje(l)}</td><td>${esc(l.pdf.enc.viaje)}</td>
-          <td>${a.mat ? esc(a.codigoMat + " — " + a.nombre) : a.descuento ? `Descuento ${soles(a.descuento.monto, false)} · ${esc(a.descuento.nombre)}` : esc(a.comentario || "")}</td><td class="num">${a.cantidad || "—"}</td>
-          <td>${a.estado === "regularizado" ? `<span class="tag pos">Regularizado</span>` : `<span class="tag warn">Pendiente</span>`}</td><td><button data-ver="${l.id}">Ver</button></td></tr>`).join("")}
+    ${(() => { const cs = []; ls.forEach(l => (l.ajustes || []).filter(cumpleAj).forEach(a => cs.push({ l, a, v: vehiculo(l.vehId) || {} })));
+      if (!cs.length) return REP.aj ? `<div class="card vacio">No hay ajustes de ese tipo en este rango.</div>` : "";
+      const n = k => cs.filter(x => x.a.codigo === k).length, pend = cs.filter(x => x.a.codigo === "CORREO" && x.a.estado !== "regularizado").length;
+      return `<div class="card scroll"><h2>Ajustes ZPD7 / ZPD4 y correos
+          <span class="tag pos">ZPD7: ${n("ZPD7")}</span> <span class="tag neg">ZPD4: ${n("ZPD4")}</span> <span class="tag azul">✉ Correo: ${n("CORREO")}</span>${pend ? ` <span class="tag warn">${pend} correo(s) pendiente(s)</span>` : ""}</h2>
+        <table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Nº viaje</th><th>Código</th><th>Material / descuento</th><th class="num">Cantidad</th><th>Comentario</th><th>Estado</th><th></th></tr></thead><tbody>
+        ${cs.sort((a, b) => a.l.fecha.localeCompare(b.l.fecha)).map(({ l, a, v }) => `<tr><td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}${etqViaje(l)}</td><td>${esc(l.pdf.enc.viaje)}</td>
+          <td><span class="tag ${a.codigo === "ZPD7" ? "pos" : a.codigo === "ZPD4" ? "neg" : "azul"}">${a.codigo === "CORREO" ? "✉ Correo" : a.codigo}</span></td>
+          <td>${a.mat ? esc(a.codigoMat + " — " + a.nombre) : a.descuento ? `Descuento ${soles(a.descuento.monto, false)} · ${esc(a.descuento.nombre)}` : "—"}</td>
+          <td class="num">${a.codigo === "ZPD7" ? "+" + a.cantidad : a.codigo === "ZPD4" ? "−" + a.cantidad : (a.cantidad || "—")}</td>
+          <td style="font-size:12.5px">${esc(a.comentario || "")}</td>
+          <td>${a.codigo === "CORREO" ? (a.estado === "regularizado" ? `<span class="tag pos">Regularizado</span>` : `<span class="tag warn">Pendiente</span>`) : `<span class="tag ok">Aplicado</span>`}</td>
+          <td><button data-ver="${l.id}">Ver</button></td></tr>`).join("")}
       </tbody></table></div>`; })()}
     <div class="dos" style="grid-template-columns:1fr 1fr">
       <div class="card" style="grid-column:1/-1"><h2>Dinero recibido por responsable</h2>${Object.keys(porRecibe).length ? `<table><thead><tr><th>Responsable</th><th class="num">Pagos</th><th>Por medio</th><th class="num">Total recibido</th></tr></thead><tbody>
@@ -1557,6 +1577,7 @@ function vReporte(m) {
   $("rDesde").onchange = e => { REP.desde = e.target.value; render(); };
   $("rHasta").onchange = e => { REP.hasta = e.target.value; render(); };
   $("rHoy").onclick = () => { REP.desde = REP.hasta = hoyISO(); render(); };
+  $("rAj").onchange = e => { REP.aj = e.target.value; render(); };
   const rq = $("rQ");
   rq.oninput = () => { REP.q = rq.value; clearTimeout(rq._t); rq._t = setTimeout(() => { const pos = rq.selectionStart; render(); const n = $("rQ"); n.focus(); n.setSelectionRange(pos, pos); }, 300); };
   m.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => abrirLiqId(b.dataset.ver));
