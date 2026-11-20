@@ -710,6 +710,10 @@ function calcBase(l) {
     }
     r.lineas.push(x);
   }
+  r.anulGrupo = {};
+  if (l.anulGrupo && Object.keys(l.anulGrupo).length) gruposVac(r.lineas, P).filas.forEach(g => {
+    if (l.anulGrupo[g.k] && g.din > 0) { r.anulGrupo[g.k] = g.din; r.sobr -= g.din; r.vac.sobr -= g.din; }
+  });
   r.sobr = r2(r.sobr); r.falt = r2(r.falt); r.prodMonto = r2(r.prodMonto);
   ["vac", "liq"].forEach(k => { r[k].sobr = r2(r[k].sobr); r[k].falt = r2(r[k].falt); r[k].neto = r2(r[k].sobr + r[k].falt); });
   r.neto = r2(r.sobr + r.falt);
@@ -1069,10 +1073,8 @@ function nombreProd(x) {
     + (x.manual ? ` <span class="tag azul" title="No figura en el PDF; se agregó con un ZPD">ZPD manual</span>` : "");
 }
 // recuadro final: totalizado de vacíos por tipo de envase y precio (sobrante, faltante, neto y dinero)
-function totalesVacios(c, l) {
-  const P = l.estado === "cerrada" && l.precios ? l.precios : S.precios;
-  const ls = c.lineas.filter(x => x.seccion === "Vacíos" && x.diferencia !== 0);
-  if (!ls.length) return "";
+function gruposVac(lineas, P) {
+  const ls = lineas.filter(x => x.seccion === "Vacíos" && x.diferencia !== 0);
   const G = [
     { k: "BG", t: "Total botellas 600 ml o más", p: P.grande, f: x => x.tipo.startsWith("Botella") && x.precio === P.grande },
     { k: "BC", t: "Total botellas 599 ml o menos", p: P.chica, f: x => x.tipo.startsWith("Botella") && x.precio === P.chica },
@@ -1086,17 +1088,26 @@ function totalesVacios(c, l) {
     const din = xs.reduce((a, x) => a + (x.dinero || 0), 0);
     return { ...g, n: xs.length, sob, fal, neto: sob + fal, din: r2(din) };
   }).filter(g => g.n);
-  const T = filas.reduce((a, g) => ({ sob: a.sob + g.sob, fal: a.fal + g.fal, din: r2(a.din + g.din) }), { sob: 0, fal: 0, din: 0 });
+  return { ls, filas };
+}
+function totalesVacios(c, l) {
+  const P = l.estado === "cerrada" && l.precios ? l.precios : S.precios;
+  const { ls, filas } = gruposVac(c.lineas, P);
+  if (!ls.length) return "";
+  const AN = c.anulGrupo || {}, ed = l.estado !== "cerrada";
+  const T = filas.reduce((a, g) => ({ sob: a.sob + g.sob, fal: a.fal + g.fal, din: r2(a.din + (AN[g.k] ? 0 : g.din)) }), { sob: 0, fal: 0, din: 0 });
   return `<h3>🧮 Totalizado de vacíos <span class="tag azul">después de ZPD</span></h3>
     <div class="card scroll" style="padding:0"><table class="resumen"><thead><tr><th>Envase</th><th class="num">Ítems</th><th class="num">Precio c/u</th>
       <th class="num">Sobrante</th><th class="num">Faltante</th><th class="num">Neto</th><th class="num">Dinero</th></tr></thead><tbody>
       ${filas.map(g => `<tr><td><b>${g.t}</b></td><td class="num">${g.n}</td><td class="num">${g.p == null ? "—" : "S/ " + g.p.toFixed(2)}</td>
         <td class="num pos">${g.sob ? und(g.sob) : "—"}</td><td class="num neg">${g.fal ? und(g.fal) : "—"}</td>
-        <td class="num ${cls(g.neto)}"><b>${und(g.neto)}</b></td><td class="num ${cls(g.din)}"><b>${g.p == null ? "Sin precio" : soles(g.din)}</b></td></tr>`).join("")}
+        <td class="num ${cls(g.neto)}"><b>${und(g.neto)}</b></td>
+        <td class="num ${AN[g.k] ? "" : cls(g.din)}">${g.p == null ? "<b>Sin precio</b>" : AN[g.k] ? `<s style="color:var(--muted)">${soles(g.din)}</s><br><small class="ayuda">sobrante anulado: no resta a la deuda</small>` : `<b>${soles(g.din)}</b>`}
+          ${ed && g.p != null && (AN[g.k] || g.din > 0) ? `<br><button class="mini" data-anulg="${g.k}" style="margin-top:3px;font-size:11px">${AN[g.k] ? "↺ Restaurar sobrante" : "⊘ Anular sobrante"}</button>` : ""}</td></tr>`).join("")}
       <tr class="tot"><td><b>Total vacíos</b></td><td class="num">${ls.length}</td><td></td><td class="num pos"><b>${T.sob ? und(T.sob) : "—"}</b></td><td class="num neg"><b>${T.fal ? und(T.fal) : "—"}</b></td>
         <td class="num ${cls(T.sob + T.fal)}"><b>${und(T.sob + T.fal)}</b></td><td class="num ${cls(T.din)}"><b>${soles(T.din)}</b></td></tr>
     </tbody></table></div>
-    <p class="ayuda" style="margin-top:4px">Neto = sobrante + faltante de cada tipo de envase. El dinero de cada fila ya compensa las botellas o cajas del mismo precio.</p>`;
+    <p class="ayuda" style="margin-top:4px">Neto = sobrante + faltante de cada tipo de envase. El dinero de cada fila ya compensa las botellas o cajas del mismo precio.${Object.keys(AN).length ? " Los sobrantes anulados no se descuentan de la deuda." : ""}</p>`;
 }
 function tablaSeccion(nombre, existe, lineas, modo, l) {
   const ls = lineas.filter(x => x.seccion === nombre);
@@ -1218,6 +1229,11 @@ function pintarPanel() {
     guardar(); pintarPanel(); render();
   });
   enlazarParches(l, c);
+  $("hoja").querySelectorAll("[data-anulg]").forEach(b => b.onclick = () => {
+    l.anulGrupo = l.anulGrupo || {}; const k = b.dataset.anulg;
+    if (l.anulGrupo[k]) delete l.anulGrupo[k]; else l.anulGrupo[k] = { fecha: new Date().toISOString() };
+    guardar(); pintarPanel(); render();
+  });
   $("hoja").querySelectorAll("[data-anul]").forEach(b => b.onclick = () => {
     l.anulados = l.anulados || {}; const k = b.dataset.anul;
     if (l.anulados[k]) delete l.anulados[k]; else l.anulados[k] = { fecha: new Date().toISOString() };
