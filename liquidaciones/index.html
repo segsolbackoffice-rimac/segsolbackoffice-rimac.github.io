@@ -761,14 +761,20 @@ function libro() {
     });
   });
   // neteos manuales: sobrantes de días no liquidados en el sistema
+  // si el sobrante del neteo luego se liquidó en el sistema (misma persona y misma fecha, liquidación cerrada),
+  // el neteo queda vinculado a ese saldo: es el mismo sobrante y no se cuenta dos veces
+  const alias = {};
   (S.saldosManuales || []).forEach(m => {
+    const real = Object.values(fuentes).find(f => !f.manual && f.rubro === "vac" && f.fecha === m.fecha && f.owner.key === pkey(m) && f.l.id !== m.liqId);
+    if (real) { alias["m:" + m.id] = real.id; (real.netos = real.netos || []).push(m); m._vinculo = real.l.id; return; }
+    delete m._vinculo;
     fuentes["m:" + m.id] = { id: "m:" + m.id, rubro: "vac", manual: m, l: S.liqs[m.liqId] || null, owner: { key: pkey(m), nombre: m.nombre, dni: m.dni || "" },
       monto: m.monto, fecha: m.fecha, vence: addDias(m.fecha, DIAS_SALDO), saldo: m.monto, usos: [] };
   });
   // liquidaciones cerradas: lo que usaron quedó guardado al cerrar
   all.filter(l => l.estado === "cerrada").forEach(l => {
     aplicado[l.id] = (l.creditos || []).slice();
-    aplicado[l.id].forEach(u => { const f = fuentes[u.src]; if (f) { f.saldo = r2(f.saldo - u.monto); f.usos.push({ l, monto: u.monto }); } });
+    aplicado[l.id].forEach(u => { const f = fuentes[u.src] || fuentes[alias[u.src]]; if (f) { f.saldo = r2(f.saldo - u.monto); f.usos.push({ l, monto: u.monto, src: u.src }); } });
   });
   // liquidaciones abiertas con faltante: usan el saldo vigente de su tripulación
   const abiertas = all.filter(l => l.estado !== "cerrada" && base[l.id].aCobrar > 0)
@@ -782,20 +788,21 @@ function libro() {
     const rb = f.rubro || "vac";
     if (falta[l.id][rb] <= 0 || f.saldo <= 0) return;
     const t = r2(Math.min(falta[l.id][rb], f.saldo)); f.saldo = r2(f.saldo - t); falta[l.id][rb] = r2(falta[l.id][rb] - t);
-    f.usos.push({ l, monto: t });
+    f.usos.push({ l, monto: t, src: f.id });
     aplicado[l.id].push({ src: f.id, rubro: rb, monto: t, nombre: f.owner.nombre, fecha: f.fecha, manual: !!f.manual, origen: f.l ? f.l.id : null });
   };
   // 1) cada neteo cubre primero la liquidación en la que se registró (aunque el mismo carro tenga otro viaje abierto)
   //    el neteo puede ser de días anteriores o posteriores (hasta ${DIAS_SALDO} días) a la liquidación donde se registró
   const elegiblePropio = (l, f) => f.saldo > 0 && keys[l.id].has(f.owner.key) && f.fecha !== l.fecha
     && (f.fecha < l.fecha ? l.fecha <= f.vence : f.fecha <= addDias(l.fecha, DIAS_SALDO));
-  abiertas.forEach(l => Object.values(fuentes).filter(f => f.manual && f.manual.liqId === l.id && elegiblePropio(l, f)).forEach(f => usar(l, f)));
+  const netoDe = f => f.manual ? [f.manual] : (f.netos || []);
+  abiertas.forEach(l => Object.values(fuentes).filter(f => netoDe(f).some(m => m.liqId === l.id) && elegiblePropio(l, f)).forEach(f => usar(l, f)));
   // 2) lo que quede de cada saldo cubre las demás liquidaciones, de la más antigua a la más nueva
   abiertas.forEach(l => Object.values(fuentes).filter(f => elegible(l, f) && !(f.manual && f.manual.liqId !== l.id && S.liqs[f.manual.liqId] && S.liqs[f.manual.liqId].estado !== "cerrada" && (falta[f.manual.liqId].vac > 0 || falta[f.manual.liqId].liq > 0)))
     .sort((a, b) => a.fecha.localeCompare(b.fecha)).forEach(f => usar(l, f)));
   const hoy = hoyISO();
   Object.values(fuentes).forEach(f => { f.estado = f.saldo <= 0 ? "Aplicado" : hoy > f.vence ? "Vencido" : "Vigente"; });
-  return (LIBRO = { base, fuentes, aplicado });
+  return (LIBRO = { base, fuentes, aplicado, alias, fuente: id => fuentes[id] || fuentes[alias[id]] || null });
 }
 function calc(l) {
   const r = calcBase(l);
@@ -1498,6 +1505,7 @@ function cajaSaldo(f, box) {
   const vo = vehiculo(f.l.vehId) || {};
   return box(`💚 Saldo a favor de <b>${f.rubro === "liq" ? "productos" : "vacíos"}</b> de <b>${esc(f.owner.nombre)}</b> (REPARTO): ${soles(f.monto, false)} · disponible <b>${soles(Math.max(f.saldo, 0), false)}</b> ${est}
     <div class="ayuda" style="margin:2px 0 0">Origen: ${esc(vo.placa)} — Viaje ${nv(f.l)}${f.l.pdf ? " · Nº " + esc(f.l.pdf.enc.viaje) : ""} · ${fmtF(f.fecha)}</div>
+    ${(f.netos || []).length ? `<div class="ayuda" style="margin:2px 0 0">🔗 Este sobrante ya se había registrado como neteo manual: ${f.netos.map(m => { const lm = S.liqs[m.liqId], vm = lm ? vehiculo(lm.vehId) || {} : {}; return `${soles(m.monto, false)} en ${esc(vm.placa || "")} — Viaje ${lm ? nv(lm) : "?"} (${lm ? fmtF(lm.fecha) : ""})`; }).join(" · ")}. Se cuenta una sola vez.</div>` : ""}
     ${f.usos.length ? `<div style="margin-top:6px"><b style="font-size:12.5px">Usado en:</b>${f.usos.map(u => { const v = vehiculo(u.l.vehId) || {};
       return `<div class="ayuda" style="margin:3px 0 0">• ${soles(u.monto, false)} en <b>${esc(v.placa)} — Viaje ${nv(u.l)}</b>${u.l.pdf ? " · Nº " + esc(u.l.pdf.enc.viaje) : ""} · liquidación del ${fmtF(u.l.fecha)}${u.l.estado === "cerrada" && u.l.cerradaEn ? ` · aplicado el ${new Date(u.l.cerradaEn).toLocaleString("es-PE")}` : " · liquidación en proceso"}</div>`; }).join("")}</div>`
       : `<div class="ayuda" style="margin:4px 0 0">Aún no se ha usado.</div>`}`);
@@ -1531,13 +1539,15 @@ function formNeteo(l, trip) {
 }
 function listaNeteos(l) {
   const ms = (S.saldosManuales || []).filter(m => m.liqId === l.id); if (!ms.length) return "";
-  const F = libro().fuentes;
+  const L = libro();
   return `<div class="card scroll" style="padding:0;margin-top:10px"><table><thead><tr><th>🔄 Neteo</th><th>Saldo a favor de</th><th>Productos</th><th class="num">Monto</th><th>Uso</th><th></th></tr></thead><tbody>
-    ${ms.map(m => { const f = F["m:" + m.id], usado = f ? r2(m.monto - Math.max(f.saldo, 0)) : 0, enCerrada = f && f.usos.some(u => u.l.estado === "cerrada" && u.l.id !== l.id);
+    ${ms.map(m => { const f = L.fuente("m:" + m.id), vin = !!L.alias["m:" + m.id], usado = f ? r2(vin ? f.usos.filter(u => u.src === "m:" + m.id).reduce((a, u) => a + u.monto, 0) : m.monto - Math.max(f.saldo, 0)) : 0,
+        enCerrada = f && f.usos.some(u => u.l.estado === "cerrada" && u.l.id !== l.id), lv = vin ? f.l : null, vv = lv ? vehiculo(lv.vehId) || {} : null;
       return `<tr><td>Sobrante del <b>${fmtF(m.fecha)}</b><br><small class="ayuda">vence ${fmtF(addDias(m.fecha, DIAS_SALDO))}</small></td><td>${esc(m.nombre)}</td>
         <td style="font-size:12.5px">${m.items.map(it => `${it.cantidad} ${esc(it.tipo)}`).join(" · ")}${m.comentario ? `<br><small class="ayuda">${esc(m.comentario)}</small>` : ""}</td>
         <td class="num pos"><b>${soles(m.monto, false)}</b></td>
-        <td style="font-size:12.5px">${f ? `Aplicado ${soles(usado, false)} · ${f.estado === "Vigente" ? `disponible ${soles(Math.max(f.saldo, 0), false)}` : f.estado}` : ""}</td>
+        <td style="font-size:12.5px">${f ? `Aplicado ${soles(usado, false)} · ${f.estado === "Vigente" ? `disponible ${soles(Math.max(f.saldo, 0), false)}` : f.estado}` : ""}
+          ${vv ? `<br><small class="ayuda">🔗 Es el mismo sobrante de la liquidación <b>${esc(vv.placa)} — Viaje ${nv(lv)}</b>${lv.pdf ? " · Nº " + esc(lv.pdf.enc.viaje) : ""}: se descuenta de ese saldo</small>` : ""}</td>
         <td>${l.estado === "cerrada" || enCerrada ? "" : `<button class="x" data-delnet="${m.id}" title="Quitar">✕</button>`}</td></tr>`; }).join("")}
   </tbody></table></div>`;
 }
@@ -2318,7 +2328,7 @@ async function eliminarLiquidacion(l) {
   const v = vehiculo(l.vehId) || {}, c = calc(l), F = libro().fuentes;
   if (!(await asegurarAdmin(`Ingresa la contraseña de administrador para eliminar la liquidación de ${v.placa || ""} — Viaje ${nv(l)} (${fmtF(l.fecha)}).`))) return;
   const netos = (S.saldosManuales || []).filter(m => m.liqId === l.id);
-  const usado = [F[l.id], F[l.id + ":liq"], ...netos.map(m => F["m:" + m.id])].filter(Boolean).some(f => f.usos.some(u => u.l.id !== l.id && u.l.estado === "cerrada"));
+  const usado = [F[l.id], F[l.id + ":liq"], ...netos.map(m => libro().fuente("m:" + m.id))].filter(Boolean).some(f => f.usos.some(u => u.l.id !== l.id && u.l.estado === "cerrada"));
   const ok = await confirmar("🗑 Eliminar liquidación", `
     <p>Se eliminará <b>definitivamente</b> la liquidación de <b>${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""} — Viaje ${nv(l)}</b> del ${fmtF(l.fecha)} (Nº de viaje ${esc(l.pdf ? l.pdf.enc.viaje : "")}).</p>
     <ul style="margin:6px 0 0 18px;padding:0">
@@ -2885,7 +2895,7 @@ function exportarReporte(ls, desde, hasta) {
   hoja(wb, "Correos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Material / descuento", "Cantidad", "Estado", "Correo abierto", "Regularizado", "Comentario"], correos);
   const ids = new Set(ls.map(l => l.id)), FU = libro().fuentes;
   hoja(wb, "Neteos", ["Fecha del sobrante", "Vence", "Saldo a favor de", "DNI", "Productos", "Monto S/", "Aplicado S/", "Disponible S/", "Estado", "Registrado en", "Comentario"],
-    (S.saldosManuales || []).filter(m => ids.has(m.liqId) || (m.fecha >= addDias(desde, -DIAS_SALDO) && m.fecha <= hasta)).map(m => { const f = FU["m:" + m.id] || { saldo: m.monto, estado: "" }, lr = S.liqs[m.liqId], v = lr ? vehiculo(lr.vehId) || {} : {};
+    (S.saldosManuales || []).filter(m => ids.has(m.liqId) || (m.fecha >= addDias(desde, -DIAS_SALDO) && m.fecha <= hasta)).map(m => { const f = libro().fuente("m:" + m.id) || { saldo: m.monto, estado: "" }, lr = S.liqs[m.liqId], v = lr ? vehiculo(lr.vehId) || {} : {};
       return [fmtF(m.fecha), fmtF(addDias(m.fecha, DIAS_SALDO)), m.nombre, m.dni, m.items.map(it => it.cantidad + " " + it.tipo).join(", "), m.monto, r2(m.monto - Math.max(f.saldo, 0)), r2(Math.max(f.saldo, 0)), f.estado,
         lr ? `${v.placa || ""} ${fmtF(lr.fecha)}${etqViaje(lr)}` : "", m.comentario || ""]; }), [5, 6, 7]);
   hoja(wb, "Ajustes y comentarios", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Código", "Sección", "Material", "Descripción", "Cantidad", "Efecto", "Comentario"], ajs);
