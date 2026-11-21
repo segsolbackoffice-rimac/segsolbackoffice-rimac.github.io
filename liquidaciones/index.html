@@ -1475,7 +1475,8 @@ function seccionCobro(l, c, trip) {
       </div>
     </div>
     ${c.creditos.map(u => { const o = u.origen && S.liqs[u.origen], vo = o ? vehiculo(o.vehId) || {} : null;
-      return `<p class="ayuda pos" style="margin:6px 0 0">✔ Se cubrió ${soles(u.monto, false)} de <b>${u.rubro === "liq" ? "productos" : "vacíos"}</b> con el saldo a favor de <b>${esc(u.nombre)}</b> (${u.manual ? "neteo del sobrante" : "sobrante"} del ${fmtF(u.fecha)}${vo ? ` · ${esc(vo.placa)} — Viaje ${nv(o)}${o.pdf ? " · Nº " + esc(o.pdf.enc.viaje) : ""}` : ""}).</p>`; }).join("")}
+      return `<p class="ayuda pos" style="margin:6px 0 0">✔ Se cubrió ${soles(u.monto, false)} de <b>${u.rubro === "liq" ? "productos" : "vacíos"}</b> con el saldo a favor de <b>${esc(u.nombre)}</b> (${u.manual ? `neteo manual del sobrante del ${fmtF(u.fecha)}, ${o && o.id === l.id ? "registrado en esta liquidación" : vo ? `registrado en ${esc(vo.placa)} — Viaje ${nv(o)}` : "registrado a mano"}`
+        : `sobrante del ${fmtF(u.fecha)}${vo ? ` · liquidación ${esc(vo.placa)} — Viaje ${nv(o)}${o.pdf ? " · Nº " + esc(o.pdf.enc.viaje) : ""}` : ""}`}).</p>`; }).join("")}
     ${infoSaldo(l, c, trip)}
     ${c.aCobrar === 0 && !cerrada ? `<p class="ayuda">No hay nada que cobrar. Puedes cerrar la liquidación.</p>` : ""}
     ${!cerrada && c.pendiente > 0 ? `<p class="ayuda m-warn" style="margin:6px 0 0">Para cerrar, cubre los <b>${soles(c.pendiente, false)}</b> pendientes con un pago, un descuento o un neteo.</p>` : ""}
@@ -1514,7 +1515,7 @@ function cajaSaldo(f, box) {
 // ---------- Neteo: sobrante de días anteriores (no liquidado en el sistema) → saldo a favor por 3 días
 const TIPOS_NETEO = () => [["caja", "Caja", S.precios.caja], ["grande", "Botella de 600 ml o más", S.precios.grande], ["chica", "Botella de 599 ml o menos", S.precios.chica]];
 function formNeteo(l, trip) {
-  const N = FORM.neteo = FORM.neteo || { fecha: addDias(l.fecha, -1), items: [{ tipo: "caja", cant: "" }, { tipo: "grande", cant: "" }], monto: "", montoTocado: false, persona: "", com: "" };
+  const N = FORM.neteo = FORM.neteo || { fecha: "", items: [{ tipo: "caja", cant: "" }, { tipo: "grande", cant: "" }], monto: "", montoTocado: false, persona: "", com: "" };
   if (!N.persona) { const rep = trip.find(t => t.funcion === "REPARTO"); N.persona = rep ? rep.personaId : ""; }
   const T = TIPOS_NETEO(), tp = k => T.find(x => x[0] === k);
   const sub = N.items.map(it => r2((+it.cant || 0) * tp(it.tipo)[2])), total = r2(sub.reduce((a, b) => a + b, 0));
@@ -1547,6 +1548,8 @@ function listaNeteos(l) {
         <td style="font-size:12.5px">${m.items.map(it => `${it.cantidad} ${esc(it.tipo)}`).join(" · ")}${m.comentario ? `<br><small class="ayuda">${esc(m.comentario)}</small>` : ""}</td>
         <td class="num pos"><b>${soles(m.monto, false)}</b></td>
         <td style="font-size:12.5px">${f ? `Aplicado ${soles(usado, false)} · ${f.estado === "Vigente" ? `disponible ${soles(Math.max(f.saldo, 0), false)}` : f.estado}` : ""}
+          ${!vin ? (() => { const dup = Object.values(L.fuentes).filter(x => !x.manual && x.rubro === "vac" && x.owner.key === pkey(m) && x.l.id !== m.liqId && Math.abs(new Date(x.fecha) - new Date(m.fecha)) <= DIAS_SALDO * 864e5);
+            return dup.map(x => { const vx = vehiculo(x.l.vehId) || {}; return `<br><small style="color:#b45309">⚠ ¿Duplicado? ${esc(m.nombre.split(" ")[0])} también tiene un sobrante <b>real</b> del ${fmtF(x.fecha)} en ${esc(vx.placa)} — Viaje ${nv(x.l)} por ${soles(x.monto, false)}. Si es el mismo sobrante, quita este neteo (✕).</small>`; }).join(""); })() : ""}
           ${vv ? `<br><small class="ayuda">🔗 Es el mismo sobrante de la liquidación <b>${esc(vv.placa)} — Viaje ${nv(lv)}</b>${lv.pdf ? " · Nº " + esc(lv.pdf.enc.viaje) : ""}: se descuenta de ese saldo</small>` : ""}</td>
         <td>${l.estado === "cerrada" || enCerrada ? "" : `<button class="x" data-delnet="${m.id}" title="Quitar">✕</button>`}</td></tr>`; }).join("")}
   </tbody></table></div>`;
