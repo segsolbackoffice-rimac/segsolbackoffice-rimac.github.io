@@ -769,7 +769,10 @@ function libro() {
     f.usos.push({ l, monto: t }); aplicado[l.id].push({ src: f.id, monto: t, nombre: f.owner.nombre, fecha: f.fecha, manual: !!f.manual });
   };
   // 1) cada neteo cubre primero la liquidación en la que se registró (aunque el mismo carro tenga otro viaje abierto)
-  abiertas.forEach(l => Object.values(fuentes).filter(f => f.manual && f.manual.liqId === l.id && elegible(l, f)).forEach(f => usar(l, f)));
+  //    el neteo puede ser de días anteriores o posteriores (hasta ${DIAS_SALDO} días) a la liquidación donde se registró
+  const elegiblePropio = (l, f) => f.saldo > 0 && keys[l.id].has(f.owner.key) && f.fecha !== l.fecha
+    && (f.fecha < l.fecha ? l.fecha <= f.vence : f.fecha <= addDias(l.fecha, DIAS_SALDO));
+  abiertas.forEach(l => Object.values(fuentes).filter(f => f.manual && f.manual.liqId === l.id && elegiblePropio(l, f)).forEach(f => usar(l, f)));
   // 2) lo que quede de cada saldo cubre las demás liquidaciones, de la más antigua a la más nueva
   abiertas.forEach(l => Object.values(fuentes).filter(f => elegible(l, f) && !(f.manual && f.manual.liqId !== l.id && S.liqs[f.manual.liqId] && S.liqs[f.manual.liqId].estado !== "cerrada" && falta[f.manual.liqId] > 0))
     .sort((a, b) => a.fecha.localeCompare(b.fecha)).forEach(f => usar(l, f)));
@@ -1482,9 +1485,9 @@ function formNeteo(l, trip) {
   const T = TIPOS_NETEO(), tp = k => T.find(x => x[0] === k);
   const sub = N.items.map(it => r2((+it.cant || 0) * tp(it.tipo)[2])), total = r2(sub.reduce((a, b) => a + b, 0));
   if (!N.montoTocado) N.monto = total ? total.toFixed(2) : "";
-  return `<p class="ayuda" style="margin-top:0">Registra un <b>sobrante de un día anterior</b> que no se liquidó en el sistema. Queda como saldo a favor del tripulante y se aplica automáticamente a sus faltantes hasta <b>${DIAS_SALDO} días</b> después de la fecha del sobrante; luego vence y queda en el historial.</p>
+  return `<p class="ayuda" style="margin-top:0">Registra un <b>sobrante de otro día</b> que no se liquidó en el sistema: puede ser de hasta <b>${DIAS_SALDO} días antes o después</b> de esta liquidación (ej. faltó el 18 y sobró el 20). Cubre primero esta liquidación; si queda saldo a favor del tripulante, se aplica a sus faltantes hasta <b>${DIAS_SALDO} días</b> después de la fecha del sobrante y luego vence.</p>
     <div class="row">
-      <label class="f">Fecha del sobrante<input type="date" id="nFecha" value="${N.fecha}" min="${addDias(l.fecha, -DIAS_SALDO)}" max="${addDias(l.fecha, -1)}"></label>
+      <label class="f">Fecha del sobrante<input type="date" id="nFecha" value="${N.fecha}" min="${addDias(l.fecha, -DIAS_SALDO)}" max="${addDias(l.fecha, DIAS_SALDO)}"></label>
       <label class="f grow">Saldo a favor de<select id="nPersona">${trip.length ? `<option value="">— Elige un tripulante —</option>` + trip.map(t => `<option value="${esc(t.personaId)}" ${t.personaId === N.persona ? "selected" : ""}>${esc(t.nombre)} (${esc(t.funcion)})</option>`).join("") : `<option value="">— Este vehículo no tiene tripulación asignada —</option>`}</select></label>
     </div>
     <div class="card scroll" style="padding:0;margin:10px 0 0"><table><thead><tr><th>Producto sobrante</th><th class="num" style="width:120px">Cantidad</th><th class="num" style="width:80px">Precio</th><th class="num" style="width:110px">Monto</th><th style="width:30px"></th></tr></thead><tbody>
@@ -1537,8 +1540,9 @@ function enlazarCobro(l, c, trip) {
     $("nAgregar").onclick = () => {
       const err = t => { $("cErr").textContent = t; };
       if (!N.fecha) return err("Indica la fecha del sobrante.");
-      if (N.fecha >= l.fecha) return err("La fecha del sobrante debe ser anterior a la de esta liquidación.");
-      if (addDias(N.fecha, DIAS_SALDO) < l.fecha) return err(`El sobrante del ${fmtF(N.fecha)} ya venció: el plazo es de ${DIAS_SALDO} días (hasta el ${fmtF(addDias(N.fecha, DIAS_SALDO))}).`);
+      if (N.fecha === l.fecha) return err("El sobrante debe ser de otro día: el de este mismo día ya está en el PDF de la liquidación.");
+      if (N.fecha > addDias(l.fecha, DIAS_SALDO)) return err(`El sobrante puede ser como máximo ${DIAS_SALDO} días después de esta liquidación (hasta el ${fmtF(addDias(l.fecha, DIAS_SALDO))}).`);
+      if (N.fecha < l.fecha && addDias(N.fecha, DIAS_SALDO) < l.fecha) return err(`El sobrante del ${fmtF(N.fecha)} ya venció: el plazo es de ${DIAS_SALDO} días (hasta el ${fmtF(addDias(N.fecha, DIAS_SALDO))}).`);
       const p = trip.find(t => t.personaId === N.persona); if (!p) return err("Elige a qué tripulante pertenece el sobrante.");
       const items = N.items.filter(it => +it.cant > 0).map(it => { const t = T.find(x => x[0] === it.tipo); return { tipo: t[1], cantidad: +it.cant, precio: t[2], monto: r2(+it.cant * t[2]) }; });
       if (!items.length) return err("Agrega al menos un producto con su cantidad.");
