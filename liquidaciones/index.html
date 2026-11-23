@@ -141,6 +141,18 @@
   .veh .vf{gap:8px}
   #elige{z-index:50;padding-top:12vh}
   input.precio{width:80px;text-align:right;padding:4px 6px}
+  .guia{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin:10px 0}
+  .guia a{display:block;text-decoration:none;color:var(--ink);background:#fff;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:10px;padding:9px 11px;font-size:12.5px;line-height:1.45}
+  .guia a:hover{background:var(--soft)}
+  .guia a b.t{display:block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+  .guia a.ok{border-left-color:var(--green)} .guia a.pend{border-left-color:var(--red)} .guia a.info{border-left-color:var(--brand-2)}
+  .barras{display:flex;flex-direction:column;gap:5px}
+  .barra{flex:none;min-height:20px;display:grid;grid-template-columns:minmax(120px,220px) 1fr 110px;gap:10px;align-items:center;font-size:12.5px}
+  .barra .lb{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .barra .tr{background:var(--soft);border-radius:4px;height:16px;position:relative}
+  .barra .fl{position:absolute;inset:0 auto 0 0;background:var(--brand-2);border-radius:0 4px 4px 0;min-width:2px}
+  .barra .fl.neg{background:#d8574f} .barra .fl.pos{background:#3e9b5b}
+  .barra .vl{text-align:right;font-variant-numeric:tabular-nums}
   .bus-res{border:1px solid var(--line);border-radius:8px;max-height:240px;overflow:auto;margin-top:4px;background:#fff}
   .bus-res:empty{display:none}
   .bus-res div{padding:6px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line)}
@@ -155,7 +167,7 @@
   <div class="sec">Liquidaciones</div>
   <button data-v="liquidar">🧾 Liquidaciones</button>
   <button data-v="reporte">💰 Cierre del día: pagos y descuentos</button>
-  <button data-v="inventario">📦 Inventario</button>
+  <button data-v="dashboard">📊 Dashboard</button>
   <button data-v="traza">🔎 Trazabilidad</button>
   <div class="sec">Datos</div>
   <button data-v="productos">🏷️ Productos</button>
@@ -741,8 +753,8 @@ function calcBase(l) {
 }
 
 // =====================================================================
-// Saldo a favor: el sobrante neto de una liquidación CERRADA queda para el tripulante con rol REPARTO
-// y cubre automáticamente sus faltantes de los 3 días siguientes. Luego vence y queda solo en historial.
+// Saldo a favor: el sobrante neto de VACÍOS de una liquidación CERRADA queda para el tripulante con rol REPARTO.
+// Ya NO se aplica solo: se usa únicamente con un NETEO MANUAL (eligiendo la fecha del saldo) dentro de los 3 días siguientes.
 // =====================================================================
 const DIAS_SALDO = 3;
 const addDias = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -755,7 +767,7 @@ function libro() {
   const fuentes = {}, aplicado = {};
   all.filter(l => l.estado === "cerrada" && base[l.id].aFavor > 0).forEach(l => {
     const rep = repartoDe(l); if (!rep) return;
-    [["vac", l.id, base[l.id].aFavorVac], ["liq", l.id + ":liq", base[l.id].aFavorLiq]].forEach(([rubro, id, monto]) => {
+    [["vac", l.id, base[l.id].aFavorVac]].forEach(([rubro, id, monto]) => {      // solo vacíos generan saldo a favor
       if (monto > 0) fuentes[id] = { id, rubro, l, owner: { key: pkey(rep), nombre: rep.nombre, dni: rep.dni || "" }, monto,
         fecha: l.fecha, vence: addDias(l.fecha, DIAS_SALDO), saldo: monto, usos: [] };
     });
@@ -764,7 +776,7 @@ function libro() {
   // si el sobrante del neteo luego se liquidó en el sistema (misma persona y misma fecha, liquidación cerrada),
   // el neteo queda vinculado a ese saldo: es el mismo sobrante y no se cuenta dos veces
   const alias = {};
-  (S.saldosManuales || []).forEach(m => {
+  (S.saldosManuales || []).filter(m => m.tipo !== "uso").forEach(m => {     // neteos antiguos (con productos escritos a mano)
     const real = Object.values(fuentes).find(f => !f.manual && f.rubro === "vac" && f.fecha === m.fecha && f.owner.key === pkey(m) && f.l.id !== m.liqId);
     if (real) { alias["m:" + m.id] = real.id; (real.netos = real.netos || []).push(m); m._vinculo = real.l.id; return; }
     delete m._vinculo;
@@ -797,12 +809,22 @@ function libro() {
     && (f.fecha < l.fecha ? l.fecha <= f.vence : f.fecha <= addDias(l.fecha, DIAS_SALDO));
   const netoDe = f => f.manual ? [f.manual] : (f.netos || []);
   abiertas.forEach(l => Object.values(fuentes).filter(f => netoDe(f).some(m => m.liqId === l.id) && elegiblePropio(l, f)).forEach(f => usar(l, f)));
-  // 2) lo que quede de cada saldo cubre las demás liquidaciones, de la más antigua a la más nueva
-  abiertas.forEach(l => Object.values(fuentes).filter(f => elegible(l, f) && !(f.manual && f.manual.liqId !== l.id && S.liqs[f.manual.liqId] && S.liqs[f.manual.liqId].estado !== "cerrada" && (falta[f.manual.liqId].vac > 0 || falta[f.manual.liqId].liq > 0)))
-    .sort((a, b) => a.fecha.localeCompare(b.fecha)).forEach(f => usar(l, f)));
+  // 2) neteos manuales: cada uno usa el saldo de la fecha elegida (solo si existe y tiene disponible)
+  const usos = (S.saldosManuales || []).filter(m => m.tipo === "uso").sort((a, b) => (a.creado || "").localeCompare(b.creado || ""));
+  const resUso = {};
+  abiertas.forEach(l => usos.filter(m => m.liqId === l.id).forEach(m => {
+    const f = fuentes[m.srcId] || fuentes[alias[m.srcId]];
+    if (!f) { resUso[m.id] = { aplicado: 0, motivo: "El saldo de origen ya no existe (¿se reabrió esa liquidación?)." }; return; }
+    const t = r2(Math.min(m.monto, Math.max(f.saldo, 0), falta[l.id].vac));
+    if (t > 0) {
+      f.saldo = r2(f.saldo - t); falta[l.id].vac = r2(falta[l.id].vac - t); f.usos.push({ l, monto: t, src: f.id, uso: m.id });
+      aplicado[l.id].push({ src: f.id, uso: m.id, rubro: "vac", monto: t, nombre: f.owner.nombre, fecha: f.fecha, manual: !!f.manual, origen: f.l ? f.l.id : null });
+    }
+    resUso[m.id] = { aplicado: t, f, motivo: t < m.monto ? `Solo se aplicó ${soles(t, false)}: ${f.saldo <= 0 ? "el saldo ya no tenía disponible" : "no había más faltante de vacíos"}.` : "" };
+  }));
   const hoy = hoyISO();
   Object.values(fuentes).forEach(f => { f.estado = f.saldo <= 0 ? "Aplicado" : hoy > f.vence ? "Vencido" : "Vigente"; });
-  return (LIBRO = { base, fuentes, aplicado, alias, fuente: id => fuentes[id] || fuentes[alias[id]] || null });
+  return (LIBRO = { base, fuentes, aplicado, alias, resUso, fuente: id => fuentes[id] || fuentes[alias[id]] || null });
 }
 function calc(l) {
   const r = calcBase(l);
@@ -811,7 +833,7 @@ function calc(l) {
   r.aCobrar = r2(Math.max(0, r.aCobrarBase - r.credito));
   r.pendiente = r2(r.aCobrar - r.cubierto);
   r.fuente = l.pdf ? (libro().fuentes[l.id] || null) : null;
-  r.fuentes = l.pdf ? [libro().fuentes[l.id], libro().fuentes[l.id + ":liq"]].filter(Boolean) : [];
+  r.fuentes = l.pdf ? [libro().fuentes[l.id]].filter(Boolean) : [];
   // cuánto se debe por vacíos y por productos, y cuánto se cubrió de cada uno
   const deuda = { vac: Math.max(0, -r.vac.neto), liq: Math.max(0, -r.liq.neto) };
   if (r.separa) ["vac", "liq"].forEach(k => { deuda[k] = Math.max(0, deuda[k] - us.filter(u => (u.rubro || "vac") === k).reduce((a, u) => a + u.monto, 0)); });
@@ -835,7 +857,7 @@ function estadoTag(l) {
 // =====================================================================
 // Navegación
 // =====================================================================
-const TITULOS = { liquidar: "Liquidaciones", reporte: "Cierre del día: total pagado y descontado al personal", traza: "Trazabilidad de faltantes y sobrantes", inventario: "Inventario: faltantes y sobrantes netos",
+const TITULOS = { liquidar: "Liquidaciones", reporte: "Cierre del día: total pagado y descontado al personal", traza: "Trazabilidad de faltantes y sobrantes", dashboard: "Dashboard",
   productos: "Productos: catálogo de SKU, presentación y precios", tripulacion: "Tripulación del día", personal: "Personal", vehiculos: "Vehículos", config: "Configuración" };
 function ir(v) {
   VISTA = v;
@@ -856,8 +878,9 @@ $("fecha").onchange = e => { FECHA = e.target.value || hoyISO(); render(); };
 
 function render() {
   const m = $("main");
+  if (VISTA === "inventario") VISTA = "liquidar";
   if (sincCatalogo()) guardar();
-  ({ liquidar: vLiquidar, reporte: vReporte, inventario: vInventario, traza: vTraza, productos: vProductos, tripulacion: vTripulacion, personal: vPersonal, vehiculos: vVehiculos, config: vConfig })[VISTA](m);
+  ({ liquidar: vLiquidar, reporte: vReporte, dashboard: vDashboard, traza: vTraza, productos: vProductos, tripulacion: vTripulacion, personal: vPersonal, vehiculos: vVehiculos, config: vConfig })[VISTA](m);
 }
 
 // =====================================================================
@@ -1169,6 +1192,22 @@ function tablaSeccion(nombre, existe, lineas, modo, l) {
     </tr>`).join("")}</tbody></table></div>`;
 }
 
+// guía rápida de la liquidación: qué revisar y qué falta, en 4 pasos (cada paso lleva a su sección)
+function guiaLiq(l, c, trip) {
+  const cerrada = l.estado === "cerrada", nAj = (l.ajustes || []).filter(a => a.codigo !== "COMENTARIO").length;
+  const sv = c.vac.neto, sp = c.liq.neto, vig = !cerrada && c.rub.vac.pend > 0 ? saldosVigentes(l, trip) : [];
+  const dif = `Vacíos: <b class="${cls(sv)}">${sv > 0 ? "sobra " + soles(sv, false) : sv < 0 ? "falta " + soles(-sv, false) : "sin diferencia"}</b><br>
+    Productos: ${l.incluirProductos ? `<b class="${cls(sp)}">${sp > 0 ? "sobra " + soles(sp, false) : sp < 0 ? "falta " + soles(-sp, false) : "sin diferencia"}</b>` : `<span class="ayuda" style="margin:0">no se cobran</span>`}`;
+  const cobro = cerrada ? `✔ Cerrada · cubierto ${soles(c.cubierto + c.credito, false)}`
+    : c.pendiente > 0 ? `Falta cubrir <b class="neg">${soles(c.pendiente, false)}</b>${["vac", "liq"].filter(k => c.rub[k].pend > 0).map(k => `<br>${RUBROS[k]}: ${soles(c.rub[k].pend, false)}`).join("")}`
+    : c.aCobrar > 0 || c.cubierto ? `✔ Todo cubierto: ya puedes cerrar` : `Nada que cobrar: ya puedes cerrar`;
+  return `<div class="guia">
+    <a href="#" data-ir="secVac" class="info"><b class="t">① Diferencias</b>${dif}</a>
+    <a href="#" data-ir="secAj" class="${nAj ? "ok" : "info"}"><b class="t">② Ajustes ZPD / correo</b>${nAj ? `${nAj} ajuste(s) registrados` : "Opcional: ZPD7 quita faltante, ZPD4 lo agrega"}</a>
+    <a href="#" data-ir="secCobro" class="${vig.length ? "pend" : "info"}"><b class="t">③ Neteo (saldo a favor)</b>${cerrada ? `${c.credito ? "Usado " + soles(c.credito, false) : "No se usó"}` : c.credito ? `Usado ${soles(c.credito, false)}` : vig.length ? `Hay saldo disponible: ${vig.map(f => fmtF(f.fecha) + " · " + soles(f.saldo, false)).join(", ")}` : "Sin saldo vigente de la tripulación"}</a>
+    <a href="#" data-ir="secCobro" class="${cerrada || !(c.pendiente > 0) ? "ok" : "pend"}"><b class="t">④ Pago / descuento y cierre</b>${cobro}</a>
+  </div>`;
+}
 function pintarPanel() {
   const l = S.liqs[LIQ_ABIERTA]; if (!l) return;
   const v = vehiculo(l.vehId) || { placa: "?", bk: "" };
@@ -1198,6 +1237,7 @@ function pintarPanel() {
       <div><span>Fecha de revisión</span><b>${esc(e.fechaRevision)}</b></div>
       <div><span>Revisor</span><b>${esc(e.revisor)}</b></div>
     </div>
+    ${guiaLiq(l, c, trip)}
     ${!placaCoincide(e.placa, v.placa) ? `<div class="card m-warn" style="padding:10px 14px">⚠ La placa del PDF (${esc(e.placa)}) no coincide con el vehículo ${esc(v.placa)}.</div>` : ""}
     <div class="kpis">
       <div class="kpi"><span>Botellas (neto)</span><b class="${cls(c.bot)}">${und(c.bot)}</b></div>
@@ -1210,19 +1250,20 @@ function pintarPanel() {
         <td class="num pos">${soles(c.liq.sobr)}</td><td class="num neg">${soles(c.liq.falt)}</td><td class="num ${cls(c.liq.neto)}"><b>${soles(c.liq.neto)}</b></td></tr>
       <tr class="tot"><td><b>Total</b></td><td class="num pos"><b>${soles(c.sobr)}</b></td><td class="num neg"><b>${soles(c.falt)}</b></td><td class="num ${cls(c.neto)}"><b>${soles(c.neto)}</b></td></tr>
     </tbody></table></div>
-    ${tablaSeccion("Productos", secs.has("Productos"), c.lineas, "productos", l)}
+    <div id="secProd"></div>${tablaSeccion("Productos", secs.has("Productos"), c.lineas, "productos", l)}
     ${l.incluirProductos && c.lineas.some(x => x.seccion === "Productos") ? `<p class="ayuda" style="margin:4px 0 0">La diferencia del PDF viene en paquetes: Unidades = diferencia × unidades por paquete. Para cambiar las unidades por paquete (six pack = 6), marca “Editar unidades por paquete”.</p>` : ""}
     ${l.incluirProductos && c.prodSinPrecio ? `<p class="ayuda m-warn">Hay ${c.prodSinPrecio} producto(s) sin precio: no suman al cobro hasta que les pongas precio.</p>` : ""}
     ${seccionParches(l, c)}
     ${tablaSeccion("Bloqueados", secs.has("Bloqueados"), c.lineas, "otros", l)}
-    ${tablaSeccion("Vacíos", secs.has("Vacíos"), c.lineas, "vacios", l)}
+    <div id="secVac"></div>${tablaSeccion("Vacíos", secs.has("Vacíos"), c.lineas, "vacios", l)}
     ${(() => { const sp = c.lineas.filter(x => x.seccion === "Vacíos" && x.precio == null); return sp.length ? `<p class="ayuda m-warn">⚠ ${sp.length} envase(s) sin precio no suman al cobro: ${sp.map(x => esc(x.nombre)).join(", ")}. No se pudo saber si es caja o botella ni su medida.</p>` : ""; })()}
     ${totalesVacios(c, l)}
     ${secs.has("Activos") ? tablaSeccion("Activos", true, c.lineas, "otros", l) : ""}
     <p class="ayuda">Archivo: ${esc(l.pdf.archivo)}${l.pdf.rep ? ` · Reproceso R${l.pdf.rep}` : ""}
       ${!cerrada ? ` · <a href="#" id="pCambiar">Cambiar PDF</a>` : ""}</p>
-    ${seccionAjustes(l)}
-    ${seccionCobro(l, c, trip)}`}`;
+    <div id="secAj"></div>${seccionAjustes(l)}
+    <div id="secCobro"></div>${seccionCobro(l, c, trip)}`}`;
+  $("hoja").querySelectorAll("[data-ir]").forEach(a => a.onclick = ev => { ev.preventDefault(); const t = $(a.dataset.ir); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); });
 
   $("pCerrar").onclick = cerrarPanel;
   const pe = $("pEliminar"); if (pe) pe.onclick = () => eliminarLiquidacion(l);
@@ -1403,7 +1444,7 @@ function seccionCobro(l, c, trip) {
   const filas = (l.cobros || []).map(x => `<tr>
       <td><span class="tag ${x.tipo === "pago" ? "pos" : "neg"}">${x.tipo === "pago" ? "Pago" : "Descuento"}</span></td>
       <td>${esc(x.nombre)}${x.dni ? `<br><small class="ayuda">DNI ${esc(x.dni)}</small>` : ""}</td>
-      <td>${x.rubro ? `<span class="tag ${x.rubro === "vac" ? "azul" : x.rubro === "otro" ? "ok" : "warn"}">${RUBROS[x.rubro]}</span> ` : ""}${x.razon ? `<i>“${esc(x.razon)}”</i> · ` : ""}${x.motivo === "correo" ? `<span class="tag azul">✉ Por correo</span> ` : ""}${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? ` · Op. ${esc(x.operacion)}` : "") + `${x.recibe ? ` · Recibió: ${esc(x.recibe)}` : ""}` : esc({ persona: "Tripulante", tripulacion: "Toda la tripulación (partes iguales)", otro: "Otra persona" }[x.modo] || "")}</td>
+      <td>${x.rubro ? `<span class="tag ${x.rubro === "vac" ? "azul" : x.rubro === "otro" ? "ok" : "warn"}">${RUBROS[x.rubro]}</span> ` : ""}${x.razon ? `<i>“${esc(x.razon)}”</i> · ` : ""}${x.motivo === "correo" ? `<span class="tag azul">✉ Por correo</span> ` : ""}${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? ` · Op. ${esc(x.operacion)}` : "") + `${x.recibe ? ` · Recibió: ${esc(x.recibe)}` : ""}` : esc({ persona: "Tripulante", tripulacion: "Toda la tripulación (partes iguales)", otro: "Otra persona", varios: `Dividido entre ${x.partes || "varias"} personas` }[x.modo] || "")}</td>
       <td class="num"><b>${soles(x.monto, false)}</b></td>
       <td>${cerrada ? "" : `<button class="x" data-delcob="${x.id}" title="Quitar">✕</button>`}</td></tr>`).join("");
   const opcTrip = trip.map(t => `<option value="${esc(t.personaId)}">${esc(t.nombre)} (${esc(t.funcion)})</option>`).join("");
@@ -1412,17 +1453,17 @@ function seccionCobro(l, c, trip) {
   let form = "";
   if (!cerrada && l.pdf) {
     const hayPend = c.pendiente > 0;
-    if (!hayPend && FORM.tipo === "neteo") FORM.tipo = "pago";
+    if (!(c.rub.vac.pend > 0) && FORM.tipo === "neteo") FORM.tipo = "pago";
     const rubDef = !hayPend ? "otro" : FORM.rubro || (c.rub.vac.pend > 0 ? "vac" : c.rub.liq.pend > 0 ? "liq" : "vac");
     const montoDef = rubDef === "otro" ? "" : (c.rub[rubDef].pend > 0 ? Math.min(c.rub[rubDef].pend, c.pendiente) : c.pendiente).toFixed(2);
     const selRubro = `<label class="f">Corresponde a<select id="cRubro">${(hayPend ? ["vac", "liq", "otro"] : ["otro"]).map(k => `<option value="${k}" ${k === rubDef ? "selected" : ""}>${RUBROS[k]}${k !== "otro" && c.rub[k].pend > 0 ? ` (falta ${soles(c.rub[k].pend, false)})` : k === "otro" ? " (escribe la razón)" : ""}</option>`).join("")}</select></label>
       <label class="f grow" id="cRazonW" style="${rubDef === "otro" ? "" : "display:none"}">Razón<input id="cRazon" maxlength="120" placeholder="Ej. multa por papeleta, adelanto, merma de cajas rotas"></label>`;
     form = `<div class="cobro-form">
       <div class="row" style="margin-bottom:10px">
-        <div class="seg"><button data-tipo="pago" class="${FORM.tipo === "pago" ? "on" : ""}">💵 Registrar pago</button><button data-tipo="descuento" class="${FORM.tipo === "descuento" ? "on" : ""}">📉 Enviar a descuento</button>${hayPend ? `<button data-tipo="neteo" class="${FORM.tipo === "neteo" ? "on" : ""}">🔄 Neteo</button>` : ""}</div>
+        <div class="seg"><button data-tipo="pago" class="${FORM.tipo === "pago" ? "on" : ""}">💵 Registrar pago</button><button data-tipo="descuento" class="${FORM.tipo === "descuento" ? "on" : ""}">📉 Enviar a descuento</button>${c.rub.vac.pend > 0 ? `<button data-tipo="neteo" class="${FORM.tipo === "neteo" ? "on" : ""}">🔄 Neteo</button>` : ""}</div>
         ${hayPend ? "" : `<span class="ayuda" style="margin:0">La liquidación ya está cubierta: solo puedes registrar pagos o descuentos por motivo <b>Otro</b>.</span>`}
       </div>
-      ${FORM.tipo === "neteo" ? formNeteo(l, trip) : FORM.tipo === "pago" ? `
+      ${FORM.tipo === "neteo" ? formNeteo(l, trip, c) : FORM.tipo === "pago" ? `
       <div class="row">
         <label class="f grow">¿Quién paga?
           <select id="cPersona">${opcTrip ? `<option value="" selected>— Elige un tripulante —</option>${opcTrip}` : `<option value="">— Este vehículo no tiene tripulación asignada —</option>`}</select></label>
@@ -1441,8 +1482,12 @@ function seccionCobro(l, c, trip) {
           <select id="cModo">
             <option value="persona" ${FORM.modo === "persona" ? "selected" : ""}>Un tripulante</option>
             <option value="tripulacion" ${FORM.modo === "tripulacion" ? "selected" : ""} ${trip.length ? "" : "disabled"}>Toda la tripulación (partes iguales)</option>
+            <option value="varios" ${FORM.modo === "varios" ? "selected" : ""}>Dividir entre varias personas</option>
             <option value="otro" ${FORM.modo === "otro" ? "selected" : ""}>Otra persona</option>
           </select></label>
+        ${FORM.modo === "varios" ? (() => { const V = FORM.varios = FORM.varios || { n: 2, sel: [] }; const opc = v => `<option value="">— Elige —</option>${trip.length ? `<optgroup label="Tripulación">${trip.map(t => `<option value="${esc(t.personaId)}" ${v === t.personaId ? "selected" : ""}>${esc(t.nombre)} (${esc(t.funcion)})</option>`).join("")}</optgroup>` : ""}<optgroup label="Otras personas">${S.personal.filter(p => !trip.some(t => t.personaId === p.id)).map(p => `<option value="${esc(p.id)}" ${v === p.id ? "selected" : ""}>${esc(p.nombre)}${p.dni ? " · " + esc(p.dni) : ""}</option>`).join("")}</optgroup>`;
+          return `<label class="f">¿Entre cuántas?<input id="cVn" type="number" min="2" max="15" step="1" value="${V.n}" style="width:80px"></label>
+          <div class="f grow" style="min-width:100%"><span>Personas (cada una paga <b id="cVcada">—</b>)</span><div class="row" style="gap:6px">${Array.from({ length: V.n }, (_, i) => `<select data-vsel="${i}" style="min-width:220px">${opc(V.sel[i] || "")}</select>`).join("")}</div></div>`; })() : ""}
         ${FORM.modo === "persona" ? `<label class="f grow">Tripulante<select id="cPersona">${opcTrip || `<option value="">— sin tripulación —</option>`}</select></label>` : ""}
         ${FORM.modo === "otro" ? `<label class="f grow">Persona<select id="cPersona">${otrasP}<option value="__otro">Escribir nombre…</option></select></label>
           <label class="f" id="cOtroWrap" style="display:none">Nombre<input id="cOtroNombre" placeholder="Nombre completo"></label>
@@ -1489,10 +1534,11 @@ function seccionCobro(l, c, trip) {
 }
 function infoSaldo(l, c, trip) {
   if (!c.aFavor) return "";
+  if (!(c.aFavorVac > 0)) return `<p class="ayuda" style="margin:8px 0 0">El sobrante de productos (${soles(c.aFavor, false)}) no genera saldo a favor: queda solo en el historial.</p>`;
   const f = c.fuente, box = t => `<div class="card" style="margin-top:10px;padding:10px 14px;border-color:#bfe3c9;background:#f3fbf5">${t}</div>`;
   if (l.estado !== "cerrada") {
     const rep = trip.find(t => String(t.funcion).toUpperCase() === "REPARTO");
-    if (rep) return box(`💚 Al cerrar, el sobrante de <b>${soles(c.aFavor, false)}</b> quedará como saldo a favor de <b>${esc(rep.nombre)}</b> (REPARTO) para cubrir sus faltantes hasta el <b>${fmtF(addDias(l.fecha, DIAS_SALDO))}</b>.`);
+    if (rep) return box(`💚 Al cerrar, el sobrante de vacíos de <b>${soles(c.aFavorVac, false)}</b> quedará como saldo a favor de <b>${esc(rep.nombre)}</b> (REPARTO). <b>No se aplica solo:</b> se usa con un <b>🔄 Neteo</b> manual en otra liquidación, eligiendo la fecha ${fmtF(l.fecha)}, hasta el <b>${fmtF(addDias(l.fecha, DIAS_SALDO))}</b>.`);
     const v = vehiculo(l.vehId) || {};
     return box(!trip.length
       ? `⚠ <b>${esc(v.placa)}</b> no tiene tripulación asignada el ${fmtF(l.fecha)}. Asígnala en <b>Tripulación del día</b> (con su REPARTO) antes de cerrar; si no, el sobrante de ${soles(c.aFavor, false)} quedará solo en el historial.`
@@ -1512,40 +1558,69 @@ function cajaSaldo(f, box) {
       : `<div class="ayuda" style="margin:4px 0 0">Aún no se ha usado.</div>`}`);
 }
 
-// ---------- Neteo: sobrante de días anteriores (no liquidado en el sistema) → saldo a favor por 3 días
-const TIPOS_NETEO = () => [["caja", "Caja", S.precios.caja], ["grande", "Botella de 600 ml o más", S.precios.grande], ["chica", "Botella de 599 ml o menos", S.precios.chica]];
-function formNeteo(l, trip) {
-  const N = FORM.neteo = FORM.neteo || { fecha: "", items: [{ tipo: "caja", cant: "" }, { tipo: "grande", cant: "" }], monto: "", montoTocado: false, persona: "", com: "" };
-  if (!N.persona) { const rep = trip.find(t => t.funcion === "REPARTO"); N.persona = rep ? rep.personaId : ""; }
-  const T = TIPOS_NETEO(), tp = k => T.find(x => x[0] === k);
-  const sub = N.items.map(it => r2((+it.cant || 0) * tp(it.tipo)[2])), total = r2(sub.reduce((a, b) => a + b, 0));
-  if (!N.montoTocado) N.monto = total ? total.toFixed(2) : "";
-  return `<p class="ayuda" style="margin-top:0">Registra un <b>sobrante de otro día</b> que no se liquidó en el sistema: puede ser de hasta <b>${DIAS_SALDO} días antes o después</b> de esta liquidación (ej. faltó el 18 y sobró el 20). Cubre primero esta liquidación; si queda saldo a favor del tripulante, se aplica a sus faltantes hasta <b>${DIAS_SALDO} días</b> después de la fecha del sobrante y luego vence.</p>
+// ---------- Neteo MANUAL: usa el saldo a favor de vacíos que realmente existe (liquidación cerrada) en la fecha elegida
+function saldosDeFecha(l, fecha, trip) {
+  const keys = new Set(trip.map(pkey));
+  const todos = Object.values(libro().fuentes).filter(f => f.rubro === "vac" && f.fecha === fecha && !(f.l && f.l.id === l.id));
+  return { mios: todos.filter(f => keys.has(f.owner.key)), otros: todos.filter(f => !keys.has(f.owner.key)) };
+}
+function saldosVigentes(l, trip) {    // atajo: saldos de esta tripulación dentro del plazo
+  const keys = new Set(trip.map(pkey));
+  return Object.values(libro().fuentes).filter(f => f.rubro === "vac" && keys.has(f.owner.key) && !(f.l && f.l.id === l.id)
+    && f.fecha <= l.fecha && l.fecha <= f.vence && f.saldo > 0).sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+const lugarSaldo = f => { if (!f.l) return "neteo manual"; const v = vehiculo(f.l.vehId) || {}; return `${esc(v.placa || "")}${v.bk ? " (" + esc(v.bk) + ")" : ""} — Viaje ${nv(f.l)}`; };
+function revisarSaldo(l, c, trip, N) {
+  // devuelve { ok, html, f } explicando si existe el saldo de esa fecha y cuánto queda
+  if (!N.fecha) return { ok: false, html: "" };
+  if (N.fecha > l.fecha) return { ok: false, html: `<div class="m-err">❌ La fecha del saldo no puede ser posterior a esta liquidación (${fmtF(l.fecha)}).</div>` };
+  const { mios, otros } = saldosDeFecha(l, N.fecha, trip);
+  if (!mios.length) return { ok: false, html: `<div class="m-err">❌ <b>No existe saldo a favor del ${fmtF(N.fecha)}</b> para la tripulación de esta liquidación.${otros.length ? ` Ese día hay saldo de ${otros.map(f => `<b>${esc(f.owner.nombre)}</b> (${lugarSaldo(f)})`).join(", ")}, pero no va en esta tripulación.` : " Ninguna liquidación cerrada de ese día dejó sobrante de vacíos."}</div>` };
+  const vig = mios.filter(f => l.fecha <= f.vence);
+  if (!vig.length) return { ok: false, html: `<div class="m-err">❌ El saldo del ${fmtF(N.fecha)} de <b>${esc(mios[0].owner.nombre)}</b> venció el ${fmtF(mios[0].vence)} (plazo de ${DIAS_SALDO} días).</div>` };
+  const usosTxt = f => f.usos.length ? f.usos.map(u => { const v = vehiculo(u.l.vehId) || {}; return `${soles(u.monto, false)} en ${esc(v.placa || "")} — Viaje ${nv(u.l)} (${fmtF(u.l.fecha)}${u.l.estado === "cerrada" ? "" : ", en proceso"})`; }).join(" · ") : "sin usos";
+  const disp = vig.filter(f => f.saldo > 0);
+  if (!disp.length) return { ok: false, html: `<div class="m-err">❌ El saldo del ${fmtF(N.fecha)} <b>ya se usó por completo</b>: ${vig.map(f => `${esc(f.owner.nombre)} · ${lugarSaldo(f)} · ${soles(f.monto, false)} → ${usosTxt(f)}`).join("<br>")}</div>` };
+  if (!N.src || !disp.some(f => f.id === N.src)) N.src = disp[0].id;
+  const f = disp.find(x => x.id === N.src);
+  return { ok: true, f, html: `<div class="m-ok" style="margin:6px 0">✔ Saldo encontrado:</div>
+    ${disp.map(x => `<label style="display:flex;gap:8px;align-items:flex-start;margin:4px 0;font-size:13.5px;cursor:pointer"><input type="radio" name="nSrc" value="${esc(x.id)}" ${x.id === f.id ? "checked" : ""}>
+      <span><b>${esc(x.owner.nombre)}</b> (REPARTO) · ${lugarSaldo(x)} · ${fmtF(x.fecha)} · generado ${soles(x.monto, false)} · <b class="pos">disponible ${soles(x.saldo, false)}</b> · vence ${fmtF(x.vence)}
+      <br><small class="ayuda">Usos: ${usosTxt(x)}</small></span></label>`).join("")}` };
+}
+function formNeteo(l, trip, c) {
+  const N = FORM.neteo = FORM.neteo || { fecha: "", src: "", monto: "", montoTocado: false, com: "" };
+  const rv = revisarSaldo(l, c, trip, N), pend = c.rub.vac.pend;
+  if (rv.ok && !N.montoTocado) N.monto = r2(Math.min(rv.f.saldo, pend)).toFixed(2);
+  const vig = saldosVigentes(l, trip);
+  return `<p class="ayuda" style="margin-top:0">El neteo usa un <b>saldo a favor de vacíos que ya existe</b>: el sobrante de una liquidación <b>cerrada</b> del REPARTO, de hasta <b>${DIAS_SALDO} días antes</b> (o de otro viaje del mismo día). Escribe la <b>fecha</b> del sobrante y el sistema comprueba si existe y cuánto queda. Solo cubre faltantes de <b>vacíos</b> (falta ${soles(pend, false)}).</p>
     <div class="row">
-      <label class="f">Fecha del sobrante<input type="date" id="nFecha" value="${N.fecha}" min="${addDias(l.fecha, -DIAS_SALDO)}" max="${addDias(l.fecha, DIAS_SALDO)}"></label>
-      <label class="f grow">Saldo a favor de<select id="nPersona">${trip.length ? `<option value="">— Elige un tripulante —</option>` + trip.map(t => `<option value="${esc(t.personaId)}" ${t.personaId === N.persona ? "selected" : ""}>${esc(t.nombre)} (${esc(t.funcion)})</option>`).join("") : `<option value="">— Este vehículo no tiene tripulación asignada —</option>`}</select></label>
+      <label class="f">Fecha del saldo a favor<input type="date" id="nFecha" value="${N.fecha}" max="${l.fecha}"></label>
+      <div class="f grow"><span>Saldos vigentes de esta tripulación</span><div class="row" style="gap:6px">${vig.length ? vig.map(f => `<button class="mini" data-nfecha="${f.fecha}" title="${esc(f.owner.nombre)} · ${esc(lugarSaldo(f).replace(/<[^>]+>/g, ""))}">${fmtF(f.fecha)} · ${soles(f.saldo, false)}</button>`).join("") : `<span class="ayuda" style="margin:0">Ninguno</span>`}</div></div>
     </div>
-    <div class="card scroll" style="padding:0;margin:10px 0 0"><table><thead><tr><th>Producto sobrante</th><th class="num" style="width:120px">Cantidad</th><th class="num" style="width:80px">Precio</th><th class="num" style="width:110px">Monto</th><th style="width:30px"></th></tr></thead><tbody>
-      ${N.items.map((it, i) => `<tr><td><select data-ni="${i}" data-nk="tipo">${T.map(t => `<option value="${t[0]}" ${t[0] === it.tipo ? "selected" : ""}>${t[1]}</option>`).join("")}</select></td>
-        <td class="num"><input data-ni="${i}" data-nk="cant" type="number" min="0" step="1" value="${esc(it.cant)}" style="width:100px;text-align:right"></td>
-        <td class="num">${tp(it.tipo)[2].toFixed(2)}</td><td class="num pos">${soles(sub[i], false)}</td>
-        <td>${N.items.length > 1 ? `<button class="x" data-nquita="${i}" title="Quitar">✕</button>` : ""}</td></tr>`).join("")}
-      <tr><td colspan="3"><button id="nMas" class="mini">+ Agregar producto</button></td><td class="num"><b>${soles(total, false)}</b></td><td></td></tr>
-    </tbody></table></div>
-    <div class="row" style="margin-top:10px">
-      <label class="f grow">Comentario<input id="nCom" value="${esc(N.com)}" placeholder="Ej. 2 cajas y 12 botellas del 15/11, no liquidadas en el sistema"></label>
-      <label class="f">Monto del neteo (S/)<input id="nMonto" type="number" step="0.01" min="0.01" value="${esc(N.monto)}" style="width:120px"></label>
-      <button class="primary" id="nAgregar">Agregar neteo</button>
-    </div>`;
+    <div style="margin-top:8px">${rv.html}</div>
+    ${rv.ok ? `<div class="row" style="margin-top:8px">
+      <label class="f grow">Comentario<input id="nCom" value="${esc(N.com)}" placeholder="Opcional"></label>
+      <label class="f">Monto a usar (S/)<input id="nMonto" type="number" step="0.01" min="0.01" max="${Math.min(rv.f.saldo, pend)}" value="${esc(N.monto)}" style="width:120px"></label>
+      <button class="primary" id="nAgregar">Aplicar neteo</button></div>` : ""}`;
 }
 function listaNeteos(l) {
   const ms = (S.saldosManuales || []).filter(m => m.liqId === l.id); if (!ms.length) return "";
   const L = libro();
-  return `<div class="card scroll" style="padding:0;margin-top:10px"><table><thead><tr><th>🔄 Neteo</th><th>Saldo a favor de</th><th>Productos</th><th class="num">Monto</th><th>Uso</th><th></th></tr></thead><tbody>
-    ${ms.map(m => { const f = L.fuente("m:" + m.id), vin = !!L.alias["m:" + m.id], usado = f ? r2(vin ? f.usos.filter(u => u.src === "m:" + m.id).reduce((a, u) => a + u.monto, 0) : m.monto - Math.max(f.saldo, 0)) : 0,
+  return `<div class="card scroll" style="padding:0;margin-top:10px"><table><thead><tr><th>🔄 Neteo</th><th>Saldo a favor de</th><th>Origen</th><th class="num">Monto</th><th>Aplicado</th><th></th></tr></thead><tbody>
+    ${ms.map(m => {
+      if (m.tipo === "uso") {
+        const f = L.fuente(m.srcId), cr = l.estado === "cerrada" ? (l.creditos || []).find(u => u.uso === m.id) : null, res = L.resUso[m.id] || {};
+        const ap = l.estado === "cerrada" ? (cr ? cr.monto : 0) : (res.aplicado || 0);
+        return `<tr><td>Saldo del <b>${fmtF(m.fecha)}</b><br><small class="ayuda">registrado ${new Date(m.creado).toLocaleDateString("es-PE")}</small></td><td>${esc(m.nombre)}</td>
+          <td style="font-size:12.5px">${f ? `${lugarSaldo(f)} · generado ${soles(f.monto, false)}` : `<span class="neg">Origen ya no existe</span>`}${m.comentario ? `<br><small class="ayuda">${esc(m.comentario)}</small>` : ""}</td>
+          <td class="num"><b>${soles(m.monto, false)}</b></td>
+          <td style="font-size:12.5px"><b class="pos">${soles(ap, false)}</b>${l.estado !== "cerrada" && res.motivo ? `<br><small style="color:#b45309">⚠ ${esc(res.motivo)}</small>` : ""}</td>
+          <td>${l.estado === "cerrada" ? "" : `<button class="x" data-delnet="${m.id}" title="Quitar">✕</button>`}</td></tr>`;
+      } const f = L.fuente("m:" + m.id), vin = !!L.alias["m:" + m.id], usado = f ? r2(vin ? f.usos.filter(u => u.src === "m:" + m.id).reduce((a, u) => a + u.monto, 0) : m.monto - Math.max(f.saldo, 0)) : 0,
         enCerrada = f && f.usos.some(u => u.l.estado === "cerrada" && u.l.id !== l.id), lv = vin ? f.l : null, vv = lv ? vehiculo(lv.vehId) || {} : null;
       return `<tr><td>Sobrante del <b>${fmtF(m.fecha)}</b><br><small class="ayuda">vence ${fmtF(addDias(m.fecha, DIAS_SALDO))}</small></td><td>${esc(m.nombre)}</td>
-        <td style="font-size:12.5px">${m.items.map(it => `${it.cantidad} ${esc(it.tipo)}`).join(" · ")}${m.comentario ? `<br><small class="ayuda">${esc(m.comentario)}</small>` : ""}</td>
+        <td style="font-size:12.5px"><span class="tag ok">Neteo antiguo</span> ${m.items.map(it => `${it.cantidad} ${esc(it.tipo)}`).join(" · ")}${m.comentario ? `<br><small class="ayuda">${esc(m.comentario)}</small>` : ""}</td>
         <td class="num pos"><b>${soles(m.monto, false)}</b></td>
         <td style="font-size:12.5px">${f ? `Aplicado ${soles(usado, false)} · ${f.estado === "Vigente" ? `disponible ${soles(Math.max(f.saldo, 0), false)}` : f.estado}` : ""}
           ${!vin ? (() => { const dup = Object.values(L.fuentes).filter(x => !x.manual && x.rubro === "vac" && x.owner.key === pkey(m) && x.l.id !== m.liqId && Math.abs(new Date(x.fecha) - new Date(m.fecha)) <= DIAS_SALDO * 864e5);
@@ -1558,6 +1633,12 @@ function enlazarCobro(l, c, trip) {
   const h = $("hoja");
   h.querySelectorAll("[data-tipo]").forEach(b => b.onclick = () => { FORM.tipo = b.dataset.tipo; pintarPanel(); });
   const modo = $("cModo"); if (modo) modo.onchange = () => { FORM.modo = modo.value; pintarPanel(); };
+  if ($("cVn")) {
+    const V = FORM.varios, cada = () => { const m = +$("cMonto").value, n = V.n; $("cVcada").textContent = m > 0 && n > 0 ? soles(r2(m / n), false) : "—"; };
+    $("cVn").onchange = e => { const n = Math.max(2, Math.min(15, Math.round(+e.target.value || 2))); V.n = n; V.sel = V.sel.slice(0, n); pintarPanel(); };
+    h.querySelectorAll("[data-vsel]").forEach(x => x.onchange = () => { V.sel[+x.dataset.vsel] = x.value; });
+    $("cMonto").addEventListener("input", cada); cada();
+  }
   const sel = $("cPersona");
   const toggleOtro = () => { const o = sel && sel.value === "__otro"; ["cOtroWrap", "cOtroDniWrap"].forEach(id => { const x = $(id); if (x) x.style.display = o ? "" : "none"; }); };
   if (sel) { sel.onchange = toggleOtro; toggleOtro(); }
@@ -1567,29 +1648,24 @@ function enlazarCobro(l, c, trip) {
     guardar(); pintarPanel(); render();
   });
   h.querySelectorAll("[data-delnet]").forEach(b => b.onclick = () => { S.saldosManuales = S.saldosManuales.filter(m => m.id !== b.dataset.delnet); guardar(); pintarPanel(); render(); });
-  if (FORM.tipo === "neteo" && $("nAgregar")) {
-    const N = FORM.neteo, T = TIPOS_NETEO();
-    $("nFecha").onchange = e => { N.fecha = e.target.value; pintarPanel(); };
-    $("nPersona").onchange = e => { N.persona = e.target.value; };
-    $("nCom").oninput = e => { N.com = e.target.value; };
-    $("nMonto").oninput = e => { N.monto = e.target.value; N.montoTocado = true; };
-    h.querySelectorAll("[data-ni]").forEach(el => el.onchange = () => { N.items[+el.dataset.ni][el.dataset.nk] = el.value; pintarPanel(); });
-    h.querySelectorAll("[data-nquita]").forEach(b => b.onclick = () => { N.items.splice(+b.dataset.nquita, 1); pintarPanel(); });
-    $("nMas").onclick = () => { N.items.push({ tipo: "chica", cant: "" }); pintarPanel(); };
-    $("nAgregar").onclick = () => {
+  if (FORM.tipo === "neteo" && $("nFecha")) {
+    const N = FORM.neteo;
+    $("nFecha").onchange = e => { N.fecha = e.target.value; N.src = ""; N.montoTocado = false; pintarPanel(); };
+    h.querySelectorAll("[data-nfecha]").forEach(b => b.onclick = () => { N.fecha = b.dataset.nfecha; N.src = ""; N.montoTocado = false; pintarPanel(); });
+    h.querySelectorAll('input[name="nSrc"]').forEach(r => r.onchange = () => { N.src = r.value; N.montoTocado = false; pintarPanel(); });
+    if ($("nCom")) $("nCom").oninput = e => { N.com = e.target.value; };
+    if ($("nMonto")) $("nMonto").oninput = e => { N.monto = e.target.value; N.montoTocado = true; };
+    if ($("nAgregar")) $("nAgregar").onclick = () => {
       const err = t => { $("cErr").textContent = t; };
-      if (!N.fecha) return err("Indica la fecha del sobrante.");
-      if (N.fecha === l.fecha) return err("El sobrante debe ser de otro día: el de este mismo día ya está en el PDF de la liquidación.");
-      if (N.fecha > addDias(l.fecha, DIAS_SALDO)) return err(`El sobrante puede ser como máximo ${DIAS_SALDO} días después de esta liquidación (hasta el ${fmtF(addDias(l.fecha, DIAS_SALDO))}).`);
-      if (N.fecha < l.fecha && addDias(N.fecha, DIAS_SALDO) < l.fecha) return err(`El sobrante del ${fmtF(N.fecha)} ya venció: el plazo es de ${DIAS_SALDO} días (hasta el ${fmtF(addDias(N.fecha, DIAS_SALDO))}).`);
-      const p = trip.find(t => t.personaId === N.persona); if (!p) return err("Elige a qué tripulante pertenece el sobrante.");
-      const items = N.items.filter(it => +it.cant > 0).map(it => { const t = T.find(x => x[0] === it.tipo); return { tipo: t[1], cantidad: +it.cant, precio: t[2], monto: r2(+it.cant * t[2]) }; });
-      if (!items.length) return err("Agrega al menos un producto con su cantidad.");
-      const monto = r2(+N.monto); if (!(monto > 0)) return err("Ingresa el monto del neteo.");
-      (S.saldosManuales = S.saldosManuales || []).push({ id: uid(), fecha: N.fecha, personaId: p.personaId, nombre: p.nombre, dni: p.dni || "", monto, items,
-        comentario: N.com.trim(), liqId: l.id, creado: new Date().toISOString() });
+      LIBRO = null; const rv = revisarSaldo(l, c, trip, N); if (!rv.ok) return err("No hay saldo disponible en esa fecha.");
+      const monto = r2(+N.monto), max = r2(Math.min(rv.f.saldo, c.rub.vac.pend));
+      if (!(monto > 0)) return err("Ingresa el monto a usar.");
+      if (monto > max + 0.001) return err(`Máximo ${soles(max, false)} (${rv.f.saldo < c.rub.vac.pend ? "es lo que queda del saldo" : "es lo que falta de vacíos"}).`);
+      const t = trip.find(x => pkey(x) === rv.f.owner.key) || {};
+      (S.saldosManuales = S.saldosManuales || []).push({ id: uid(), tipo: "uso", srcId: rv.f.id, fecha: rv.f.fecha, personaId: t.personaId || null, nombre: rv.f.owner.nombre, dni: rv.f.owner.dni || "",
+        monto, comentario: (N.com || "").trim(), liqId: l.id, creado: new Date().toISOString() });
       FORM.neteo = null; FORM.tipo = "pago";
-      guardar(); pintarPanel(); render(); toast(`Neteo de ${soles(monto, false)} registrado como saldo a favor de ${p.nombre}.`);
+      guardar(); pintarPanel(); render(); toast(`Neteo aplicado: ${soles(monto, false)} del saldo del ${fmtF(rv.f.fecha)} de ${rv.f.owner.nombre}.`);
     };
   }
   const cr = $("cRubro");
@@ -1629,6 +1705,16 @@ function enlazarCobro(l, c, trip) {
       const rubro = rubroSel;
       trip.forEach((t, i) => l.cobros.push({ id: uid(), tipo: "descuento", rubro, ...extra, personaId: t.personaId, nombre: t.nombre, dni: t.dni || "", monto: (base + (i < resto ? 1 : 0)) / 100, modo: "tripulacion", grupo, motivo, fecha: new Date().toISOString() }));
       if (motivo === "correo") correoPorDescuento(l, monto, "Toda la tripulación (partes iguales)");
+    } else if (FORM.modo === "varios") {
+      const V = FORM.varios || { n: 2, sel: [] }, ids = V.sel.slice(0, V.n);
+      if (ids.length < V.n || ids.some(x => !x)) return err(`Elige las ${V.n} personas a las que se dividirá el descuento.`);
+      if (new Set(ids).size !== ids.length) return err("Hay una persona repetida: elige personas distintas.");
+      const ps = ids.map(id => persona(id)).filter(Boolean); if (ps.length !== ids.length) return err("Alguna persona no existe.");
+      const cent = Math.round(monto * 100), base = Math.floor(cent / ps.length), resto = cent - base * ps.length, grupo = uid();
+      const motivo = esOtro ? "otro" : $("cMotivo").value;
+      ps.forEach((p, i) => l.cobros.push({ id: uid(), tipo: "descuento", rubro: rubroSel, ...extra, personaId: p.id, nombre: p.nombre, dni: p.dni || "", monto: (base + (i < resto ? 1 : 0)) / 100, modo: "varios", partes: ps.length, grupo, motivo, fecha: new Date().toISOString() }));
+      if (motivo === "correo") correoPorDescuento(l, monto, `Dividido entre ${ps.length}: ${ps.map(p => p.nombre).join(", ")}`);
+      FORM.varios = null;
     } else {
       const q = quien(); if (!q) return err("Indica a quién se le descuenta.");
       const motivo = esOtro ? "otro" : $("cMotivo").value;
@@ -1681,7 +1767,7 @@ function vReporte(m) {
     : REP.aj === "CORREO_R" ? a.codigo === "CORREO" && a.estado === "regularizado" : ["ZPD7", "ZPD4", "CORREO"].includes(a.codigo);
   const ls = REP.aj ? lsTexto.filter(l => (l.ajustes || []).some(cumpleAj)) : lsTexto;
   const cuenta = k => lsTexto.reduce((n, l) => n + (l.ajustes || []).filter(a => k === "CORREO_P" ? a.codigo === "CORREO" && a.estado !== "regularizado" : a.codigo === k).length, 0);
-  let aC = 0, pg = 0, ds = 0, sob = 0, fal = 0, fav = 0;
+  let aC = 0, pg = 0, ds = 0, sob = 0, fal = 0, fav = 0, bse = 0, nt = 0, pnd = 0, ot = 0, nCer = 0;
   const porMedio = {}, porPersona = {}, porColab = {}, porRecibe = {};
   ls.forEach(l => {
     const v = vehiculo(l.vehId) || {};
@@ -1691,7 +1777,8 @@ function vReporte(m) {
       if (x.tipo === "pago") p.pagado = r2(p.pagado + x.monto); else p.descontado = r2(p.descontado + x.monto);
       p.placas.add(v.placa + (v.bk ? " — " + v.bk : "")); p.items.push({ l, v, x });
     });
-    const c = calc(l); aC += c.aCobrar; pg += c.pagado; ds += c.descontado; sob += c.sobr; fal += c.falt; fav += c.aFavor;
+    const c = calc(l); aC += c.aCobrar; pg += c.pagado; ds += c.descontado; sob += c.sobr; fal += c.falt; fav += c.aFavorVac || 0;
+    bse += c.aCobrarBase; nt += c.credito; ot += c.otro || 0; if (l.estado === "cerrada") nCer++; else pnd += Math.max(0, c.pendiente);
     (l.cobros || []).forEach(x => {
       if (x.tipo === "pago") { porMedio[x.medio] = r2((porMedio[x.medio] || 0) + x.monto);
         const rk = x.recibe || "(sin registrar)"; const r = porRecibe[rk] = porRecibe[rk] || { total: 0, n: 0, medios: {} };
@@ -1717,14 +1804,19 @@ function vReporte(m) {
       <button class="primary" id="rExcel" ${ls.length ? "" : "disabled"}>Exportar Excel</button>
     </div></div>
     ${pend ? `<div class="card m-warn" style="padding:10px 14px">⚠ Hay ${pend} liquidación(es) sin cerrar en este rango.</div>` : ""}
-    <div class="kpis">
-      <div class="kpi"><span>Liquidaciones</span><b>${ls.length}</b></div>
-      <div class="kpi"><span>Sobrante</span><b class="pos">${soles(r2(sob))}</b></div>
-      <div class="kpi"><span>Faltante</span><b class="neg">${soles(r2(fal))}</b></div>
-      <div class="kpi"><span>Total a cobrar</span><b>${soles(r2(aC), false)}</b></div>
-      <div class="kpi"><span>Total pagado</span><b class="pos">${soles(r2(pg), false)}</b></div>
-      <div class="kpi"><span>Total descuento</span><b class="neg">${soles(r2(ds), false)}</b></div>
-      <div class="kpi"><span>Sobrante a favor</span><b class="pos">${soles(r2(fav), false)}</b></div>
+    <div class="card" style="padding:14px 16px">
+      <h2 style="margin-top:0">Resumen ${REP.desde === REP.hasta ? "del " + fmtF(REP.desde) : `del ${fmtF(REP.desde)} al ${fmtF(REP.hasta)}`}</h2>
+      <p style="margin:0 0 10px;line-height:1.7">Se liquidaron <b>${ls.length}</b> viaje(s): <b>${nCer}</b> cerrado(s)${ls.length - nCer ? ` y <b class="neg">${ls.length - nCer}</b> sin cerrar` : ""}.
+        Por diferencias se debía cobrar <b>${soles(r2(bse), false)}</b>${nt ? `; se netearon <b class="pos">${soles(r2(nt), false)}</b> con saldos a favor, quedando <b>${soles(r2(aC), false)}</b>` : ""}.
+        De eso se cubrió con <b class="pos">${soles(r2(pg), false)}</b> en pagos y <b class="neg">${soles(r2(ds), false)}</b> en descuentos${pnd ? `, y <b class="neg">faltan ${soles(r2(pnd), false)}</b>` : ""}.</p>
+      <div class="kpis" style="margin:0">
+        <div class="kpi"><span>① Se debía cobrar</span><b>${soles(r2(bse), false)}</b><small class="ayuda" style="display:block">faltante neto de los viajes</small></div>
+        <div class="kpi"><span>② Neteado con saldo a favor</span><b class="pos">${soles(r2(nt), false)}</b><small class="ayuda" style="display:block">neteos manuales de vacíos</small></div>
+        <div class="kpi"><span>③ Pagado (dinero recibido)</span><b class="pos">${soles(r2(pg), false)}</b><small class="ayuda" style="display:block">${Object.entries(porMedio).map(([k, v]) => `${esc(k)} ${soles(v, false)}`).join(" · ") || "—"}</small></div>
+        <div class="kpi"><span>④ Enviado a descuento</span><b class="neg">${soles(r2(ds), false)}</b><small class="ayuda" style="display:block">se descuenta al personal</small></div>
+        <div class="kpi"><span>⑤ Falta cubrir</span><b class="${pnd ? "neg" : "pos"}">${soles(r2(pnd), false)}</b><small class="ayuda" style="display:block">${pnd ? "liquidaciones sin cerrar" : "todo cubierto"}</small></div>
+      </div>
+      <p class="ayuda" style="margin:10px 0 0">Diferencias del periodo: sobrante ${soles(r2(sob))} · faltante ${soles(r2(fal))} · saldo a favor de vacíos generado ${soles(r2(fav), false)}${ot ? ` · incluye ${soles(r2(ot), false)} por motivo “Otro” (no cubren faltantes)` : ""}.</p>
     </div>
     <div class="card scroll"><h2>Total por colaborador</h2>
       ${Object.keys(porColab).length ? `<table><thead><tr><th>Colaborador</th><th>DNI</th><th>Vehículo(s)</th><th class="num">Pagado</th><th class="num">Descontado</th><th class="num">Total</th><th></th></tr></thead><tbody>
@@ -1732,7 +1824,7 @@ function vReporte(m) {
         <td><b>${esc(p.nombre)}</b></td><td>${esc(p.dni)}</td><td style="font-size:12px">${[...p.placas].map(esc).join("<br>")}</td>
         <td class="num pos">${soles(p.pagado, false)}</td><td class="num neg">${soles(p.descontado, false)}</td><td class="num"><b>${soles(r2(p.pagado + p.descontado), false)}</b></td>
         <td><button data-col="${i}">Ver detalle</button></td></tr>
-        <tr class="det" id="col_${i}"><td colspan="7">${p.items.map(({ l, v, x }) => `<div>${fmtF(l.fecha)} · ${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""} · viaje ${esc(l.pdf.enc.viaje)} · ${x.tipo === "pago" ? "💵 Pago " + esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") + (x.recibe ? " · Recibió: " + esc(x.recibe) : "") : "📉 Descuento" + (x.modo === "tripulacion" ? " (partes iguales)" : "")}${x.rubro === "otro" ? ` · <span class="tag ok">Otro</span> <i>“${esc(x.razon || "")}”</i>` : ""} · <b>${soles(x.monto, false)}</b></div>`).join("")}</td></tr>`).join("")}
+        <tr class="det" id="col_${i}"><td colspan="7">${p.items.map(({ l, v, x }) => `<div>${fmtF(l.fecha)} · ${esc(v.placa)}${v.bk ? " — " + esc(v.bk) : ""} · viaje ${esc(l.pdf.enc.viaje)} · ${x.tipo === "pago" ? "💵 Pago " + esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") + (x.recibe ? " · Recibió: " + esc(x.recibe) : "") : "📉 Descuento" + (x.modo === "tripulacion" ? " (partes iguales)" : x.modo === "varios" ? ` (dividido entre ${x.partes})` : "")}${x.rubro === "otro" ? ` · <span class="tag ok">Otro</span> <i>“${esc(x.razon || "")}”</i>` : ""} · <b>${soles(x.monto, false)}</b></div>`).join("")}</td></tr>`).join("")}
       <tr><td colspan="3"><b>TOTAL</b></td><td class="num pos"><b>${soles(r2(pg), false)}</b></td><td class="num neg"><b>${soles(r2(ds), false)}</b></td><td class="num"><b>${soles(r2(pg + ds), false)}</b></td><td></td></tr>
       </tbody></table>` : `<div class="vacio">Aún no hay pagos ni descuentos registrados en este rango.</div>`}
     </div>
@@ -1743,7 +1835,7 @@ function vReporte(m) {
         <table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Tipo</th><th>Persona</th><th>Razón</th><th>Medio / recibió</th><th class="num">Monto</th><th></th></tr></thead><tbody>
         ${os.sort((a, b) => a.l.fecha.localeCompare(b.l.fecha)).map(({ l, x, v }) => `<tr><td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}${etqViaje(l)}</td>
           <td><span class="tag ${x.tipo === "pago" ? "pos" : "neg"}">${x.tipo === "pago" ? "Pago" : "Descuento"}</span></td><td>${esc(x.nombre)}${x.dni ? `<br><small class="ayuda">DNI ${esc(x.dni)}</small>` : ""}</td>
-          <td><i>${esc(x.razon || "")}</i></td><td style="font-size:12.5px">${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? " · Op. " + esc(x.operacion) : "") + (x.recibe ? " · " + esc(x.recibe) : "") : (x.modo === "tripulacion" ? "Partes iguales" : "—")}</td>
+          <td><i>${esc(x.razon || "")}</i></td><td style="font-size:12.5px">${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? " · Op. " + esc(x.operacion) : "") + (x.recibe ? " · " + esc(x.recibe) : "") : (x.modo === "tripulacion" ? "Partes iguales" : x.modo === "varios" ? `Dividido entre ${x.partes}` : "—")}</td>
           <td class="num"><b>${soles(x.monto, false)}</b></td><td><button data-ver="${l.id}">Ver</button></td></tr>`).join("")}
         </tbody></table><p class="ayuda">Estos montos no cubren el faltante de la liquidación: son por otros conceptos.</p></div>`; })()}
     ${(() => { const cs = []; ls.forEach(l => (l.ajustes || []).filter(cumpleAj).forEach(a => cs.push({ l, a, v: vehiculo(l.vehId) || {} })));
@@ -1782,7 +1874,7 @@ function vReporte(m) {
         <td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}${etqViaje(l) ? `<br><span class="tag azul">${etqViaje(l).slice(3)}</span>` : ""}</td><td>${esc(l.pdf.enc.viaje)}</td><td>${estadoTag(l)}</td>
         <td class="num ${cls(c.neto)}">${soles(c.neto)}</td><td class="num pos">${c.aFavor ? soles(c.aFavor, false) : "—"}</td><td class="num">${soles(c.aCobrar, false)}</td><td class="num pos">${soles(c.pagado, false)}</td><td class="num neg">${soles(c.descontado, false)}</td>
         <td><button data-ver="${l.id}">Ver detalle</button> <button data-desg="${l.id}">▾</button></td></tr>
-        <tr class="det" id="d_${l.id}"><td colspan="10">${(l.cobros || []).length ? (l.cobros.map(x => `<div>${x.tipo === "pago" ? "💵 Pago" : "📉 Descuento"} · ${esc(x.nombre)}${x.dni ? " (" + esc(x.dni) + ")" : ""} · ${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") + (x.recibe ? " · Recibió: " + esc(x.recibe) : "") : (x.modo === "tripulacion" ? "partes iguales" : "")}${x.rubro === "otro" ? ` · <span class="tag ok">Otro</span> <i>“${esc(x.razon || "")}”</i>` : ""} · <b>${soles(x.monto, false)}</b></div>`).join("")) : `<span class="vacio">Sin pagos ni descuentos.</span>`}
+        <tr class="det" id="d_${l.id}"><td colspan="10">${(l.cobros || []).length ? (l.cobros.map(x => `<div>${x.tipo === "pago" ? "💵 Pago" : "📉 Descuento"} · ${esc(x.nombre)}${x.dni ? " (" + esc(x.dni) + ")" : ""} · ${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") + (x.recibe ? " · Recibió: " + esc(x.recibe) : "") : (x.modo === "tripulacion" ? "partes iguales" : x.modo === "varios" ? `dividido entre ${x.partes}` : "")}${x.rubro === "otro" ? ` · <span class="tag ok">Otro</span> <i>“${esc(x.razon || "")}”</i>` : ""} · <b>${soles(x.monto, false)}</b></div>`).join("")) : `<span class="vacio">Sin pagos ni descuentos.</span>`}
           <div class="ayuda" style="margin-top:6px">Tripulación: ${tripLiq(l).map(t => esc(t.nombre) + " (" + esc(t.funcion) + ")").join(", ") || "—"}</div></td></tr>`; }).join("")}
       </tbody></table>` : `<div class="vacio">No hay liquidaciones en este rango.</div>`}
     </div>`;
@@ -2716,6 +2808,84 @@ function vProductos(m) {
   });
 }
 
+// =====================================================================
+// VISTA: Dashboard — liquidaciones, descuentos por colaborador, por placa y por fecha
+// =====================================================================
+let DSH = { tab: "liq", desde: null, hasta: null, q: "" };
+function barrasHTML(items, fmt, cl) {
+  const max = Math.max(...items.map(x => Math.abs(x.v)), 0.01);
+  return `<div class="barras">${items.map(x => `<div class="barra" title="${esc(x.l)}: ${esc(fmt(x.v))}${x.t ? " · " + esc(x.t) : ""}">
+    <span class="lb">${esc(x.l)}</span><span class="tr"><span class="fl ${cl ? cl(x) : ""}" style="width:${(Math.abs(x.v) / max * 100).toFixed(1)}%"></span></span><span class="vl">${fmt(x.v)}</span></div>`).join("")}</div>`;
+}
+function vDashboard(m) {
+  if (!DSH.desde) { DSH.hasta = FECHA; DSH.desde = addDias(FECHA, -6); }
+  const ls = liqsRango(DSH.desde, DSH.hasta).filter(l => coincideTexto(DSH.q, l, vehiculo(l.vehId) || {}, tripLiq(l)));
+  const S2 = x => soles(r2(x), false);
+  const tabs = [["liq", "Liquidaciones"], ["col", "Descuentos por colaborador"], ["placa", "Por placa"], ["fecha", "Por fecha"], ["rutas", "Rutas, rechazos y tiempos"]];
+  let cuerpo = "";
+  const filas = ls.map(l => ({ l, v: vehiculo(l.vehId) || {}, c: calc(l) }));
+  if (!ls.length && DSH.tab !== "rutas") cuerpo = `<div class="card vacio">No hay liquidaciones en este rango.</div>`;
+  else if (DSH.tab === "liq") {
+    const t = k => filas.reduce((a, f) => a + (f.c[k] || 0), 0), cer = filas.filter(f => f.l.estado === "cerrada").length;
+    const pend = filas.filter(f => f.l.estado !== "cerrada").reduce((a, f) => a + Math.max(0, f.c.pendiente), 0);
+    const vacF = filas.reduce((a, f) => a + Math.max(0, -f.c.vac.neto), 0), liqF = filas.reduce((a, f) => a + Math.max(0, -f.c.liq.neto), 0);
+    const porDia = {}; filas.forEach(f => { porDia[f.l.fecha] = (porDia[f.l.fecha] || 0) + f.c.aCobrarBase; });
+    cuerpo = `<div class="kpis">
+      <div class="kpi"><span>Viajes liquidados</span><b>${ls.length}</b><small class="ayuda" style="display:block">${cer} cerrados · ${ls.length - cer} en proceso</small></div>
+      <div class="kpi"><span>% cerradas</span><b class="${cer === ls.length ? "pos" : ""}">${Math.round(cer / ls.length * 100)}%</b></div>
+      <div class="kpi"><span>Faltante neto a cobrar</span><b>${S2(t("aCobrarBase"))}</b><small class="ayuda" style="display:block">vacíos ${S2(vacF)} · productos ${S2(liqF)}</small></div>
+      <div class="kpi"><span>Pagado</span><b class="pos">${S2(t("pagado"))}</b></div>
+      <div class="kpi"><span>Descontado</span><b class="neg">${S2(t("descontado"))}</b></div>
+      <div class="kpi"><span>Neteado</span><b class="pos">${S2(t("credito"))}</b></div>
+      <div class="kpi"><span>Pendiente</span><b class="${pend ? "neg" : "pos"}">${S2(pend)}</b></div>
+    </div>
+    <div class="card"><h2>Faltante a cobrar por día</h2>${barrasHTML(Object.keys(porDia).sort().map(d => ({ l: fmtF(d), v: r2(porDia[d]) })), S2)}</div>
+    <div class="card"><h2>Viajes con mayor faltante</h2>${barrasHTML(filas.filter(f => f.c.aCobrarBase > 0).sort((a, b) => b.c.aCobrarBase - a.c.aCobrarBase).slice(0, 10)
+      .map(f => ({ l: `${f.v.placa}${f.v.bk ? " — " + f.v.bk : ""} · V${nv(f.l)} · ${fmtF(f.l.fecha)}`, v: f.c.aCobrarBase, t: f.l.estado === "cerrada" ? "cerrada" : "en proceso" })), S2, () => "neg")}</div>`;
+  } else if (DSH.tab === "col") {
+    const P = {};
+    filas.forEach(({ l, v }) => (l.cobros || []).forEach(x => { const k = (x.dni || "") + "|" + x.nombre; const p = P[k] = P[k] || { nombre: x.nombre, dni: x.dni, desc: 0, pago: 0, n: 0, placas: new Set() };
+      if (x.tipo === "pago") p.pago += x.monto; else p.desc += x.monto; p.n++; p.placas.add(v.placa); }));
+    const arr = Object.values(P).sort((a, b) => b.desc - a.desc);
+    cuerpo = arr.length ? `<div class="card"><h2>Descuentos por colaborador (top 15)</h2>${barrasHTML(arr.filter(p => p.desc > 0).slice(0, 15).map(p => ({ l: p.nombre, v: r2(p.desc) })), S2, () => "neg")}</div>
+      <div class="card scroll"><h2>Detalle</h2><table><thead><tr><th>Colaborador</th><th>DNI</th><th>Placa(s)</th><th class="num">Movimientos</th><th class="num">Pagado</th><th class="num">Descontado</th><th class="num">Total</th></tr></thead><tbody>
+      ${arr.map(p => `<tr><td><b>${esc(p.nombre)}</b></td><td>${esc(p.dni || "")}</td><td>${[...p.placas].map(esc).join(", ")}</td><td class="num">${p.n}</td><td class="num pos">${S2(p.pago)}</td><td class="num neg">${S2(p.desc)}</td><td class="num"><b>${S2(p.pago + p.desc)}</b></td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="card vacio">No hay pagos ni descuentos en este rango.</div>`;
+  } else if (DSH.tab === "placa") {
+    const P = {};
+    filas.forEach(({ l, v, c }) => { const k = v.placa || "?"; const p = P[k] = P[k] || { placa: k, bk: v.bk, n: 0, base: 0, pago: 0, desc: 0, net: 0, pend: 0, vac: 0 };
+      p.n++; p.base += c.aCobrarBase; p.pago += c.pagado; p.desc += c.descontado; p.net += c.credito; p.vac += c.vac.neto; if (l.estado !== "cerrada") p.pend += Math.max(0, c.pendiente); });
+    const arr = Object.values(P).sort((a, b) => b.base - a.base);
+    cuerpo = `<div class="card"><h2>Faltante a cobrar por placa</h2>${barrasHTML(arr.map(p => ({ l: `${p.placa}${p.bk ? " — " + p.bk : ""}`, v: r2(p.base), t: p.n + " viaje(s)" })), S2, () => "neg")}</div>
+      <div class="card scroll"><h2>Detalle por placa</h2><table><thead><tr><th>Placa</th><th>Nombre comercial</th><th class="num">Viajes</th><th class="num">Neto vacíos</th><th class="num">A cobrar</th><th class="num">Neteado</th><th class="num">Pagado</th><th class="num">Descontado</th><th class="num">Pendiente</th></tr></thead><tbody>
+      ${arr.map(p => `<tr><td><b>${esc(p.placa)}</b></td><td>${esc(p.bk || "")}</td><td class="num">${p.n}</td><td class="num ${cls(p.vac)}">${soles(r2(p.vac))}</td><td class="num">${S2(p.base)}</td><td class="num pos">${S2(p.net)}</td><td class="num pos">${S2(p.pago)}</td><td class="num neg">${S2(p.desc)}</td><td class="num ${p.pend ? "neg" : ""}">${S2(p.pend)}</td></tr>`).join("")}</tbody></table></div>`;
+  } else if (DSH.tab === "fecha") {
+    const P = {};
+    filas.forEach(({ l, c }) => { const p = P[l.fecha] = P[l.fecha] || { n: 0, base: 0, pago: 0, desc: 0, net: 0, pend: 0 };
+      p.n++; p.base += c.aCobrarBase; p.pago += c.pagado; p.desc += c.descontado; p.net += c.credito; if (l.estado !== "cerrada") p.pend += Math.max(0, c.pendiente); });
+    const ds = Object.keys(P).sort();
+    cuerpo = `<div class="card"><h2>Descontado por día</h2>${barrasHTML(ds.map(d => ({ l: fmtF(d), v: r2(P[d].desc) })), S2, () => "neg")}</div>
+      <div class="card"><h2>Pagado por día</h2>${barrasHTML(ds.map(d => ({ l: fmtF(d), v: r2(P[d].pago) })), S2, () => "pos")}</div>
+      <div class="card scroll"><h2>Detalle por fecha</h2><table><thead><tr><th>Fecha</th><th class="num">Viajes</th><th class="num">A cobrar</th><th class="num">Neteado</th><th class="num">Pagado</th><th class="num">Descontado</th><th class="num">Pendiente</th></tr></thead><tbody>
+      ${ds.map(d => { const p = P[d]; return `<tr><td><b>${fmtF(d)}</b></td><td class="num">${p.n}</td><td class="num">${S2(p.base)}</td><td class="num pos">${S2(p.net)}</td><td class="num pos">${S2(p.pago)}</td><td class="num neg">${S2(p.desc)}</td><td class="num ${p.pend ? "neg" : ""}">${S2(p.pend)}</td></tr>`; }).join("")}</tbody></table></div>`;
+  } else {
+    cuerpo = `<div class="card vacio">La efectividad por ruta, rechazos, rechazos por hectolitros, horas trabajadas y demora de clientes se calcularán con el informe que pegues en el apartado <b>Análisis</b> (en preparación).</div>`;
+  }
+  m.innerHTML = `<div class="card"><div class="row">
+      <label class="f">Desde<input type="date" id="dDesde" value="${DSH.desde}"></label>
+      <label class="f">Hasta<input type="date" id="dHasta" value="${DSH.hasta}"></label>
+      <button id="d7">Últimos 7 días</button><button id="d30">Últimos 30 días</button>
+      <label class="f grow">Buscar (nombre, DNI, placa, nombre comercial)<input id="dQ" value="${esc(DSH.q)}" placeholder="Ej. BK3783"></label>
+    </div><div class="seg" style="margin-top:10px">${tabs.map(([k, t]) => `<button data-dt="${k}" class="${DSH.tab === k ? "on" : ""}">${t}</button>`).join("")}</div></div>
+    ${cuerpo}`;
+  $("dDesde").onchange = e => { DSH.desde = e.target.value; render(); };
+  $("dHasta").onchange = e => { DSH.hasta = e.target.value; render(); };
+  $("d7").onclick = () => { DSH.hasta = FECHA; DSH.desde = addDias(FECHA, -6); render(); };
+  $("d30").onclick = () => { DSH.hasta = FECHA; DSH.desde = addDias(FECHA, -29); render(); };
+  m.querySelectorAll("[data-dt]").forEach(b => b.onclick = () => { DSH.tab = b.dataset.dt; render(); });
+  const q = $("dQ"); q.oninput = () => { DSH.q = q.value; clearTimeout(q._t); q._t = setTimeout(() => { render(); const n = $("dQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 300); };
+}
+
 function vVehiculos(m) {
   m.innerHTML = `
     <div class="card"><h2>Agregar vehículo</h2><div class="row">
@@ -2842,7 +3012,7 @@ function filasCobros(ls, tipo) {
   ls.forEach(l => { const v = vehiculo(l.vehId) || {};
     (l.cobros || []).filter(c => c.tipo === tipo).forEach(c => out.push(tipo === "pago"
       ? [fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, c.nombre, c.dni, c.medio, c.operacion || "", c.recibe || "", c.monto, (RUBROS[c.rubro] || "") + (c.razon ? ": " + c.razon : "")]
-      : [fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, c.nombre, c.dni, c.modo === "tripulacion" ? "Partes iguales (tripulación)" : c.modo === "otro" ? "Otra persona" : "Tripulante", c.monto, (RUBROS[c.rubro] || "") + (c.razon ? ": " + c.razon : "")])); });
+      : [fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, c.nombre, c.dni, c.modo === "tripulacion" ? "Partes iguales (tripulación)" : c.modo === "varios" ? `Dividido entre ${c.partes}` : c.modo === "otro" ? "Otra persona" : "Tripulante", c.monto, (RUBROS[c.rubro] || "") + (c.razon ? ": " + c.razon : "")])); });
   return out;
 }
 function filasDif(items) {
@@ -2899,6 +3069,8 @@ function exportarReporte(ls, desde, hasta) {
   const ids = new Set(ls.map(l => l.id)), FU = libro().fuentes;
   hoja(wb, "Neteos", ["Fecha del sobrante", "Vence", "Saldo a favor de", "DNI", "Productos", "Monto S/", "Aplicado S/", "Disponible S/", "Estado", "Registrado en", "Comentario"],
     (S.saldosManuales || []).filter(m => ids.has(m.liqId) || (m.fecha >= addDias(desde, -DIAS_SALDO) && m.fecha <= hasta)).map(m => { const f = libro().fuente("m:" + m.id) || { saldo: m.monto, estado: "" }, lr = S.liqs[m.liqId], v = lr ? vehiculo(lr.vehId) || {} : {};
+      if (m.tipo === "uso") { const o = libro().fuente(m.srcId); return [fmtF(m.fecha), fmtF(addDias(m.fecha, DIAS_SALDO)), m.nombre, m.dni, "Uso de saldo" + (o ? " · origen " + lugarSaldo(o).replace(/<[^>]+>/g, "") : ""), m.monto, m.monto, o ? r2(Math.max(o.saldo, 0)) : 0, o ? o.estado : "",
+        lr ? `${v.placa || ""} ${fmtF(lr.fecha)}${etqViaje(lr)}` : "", m.comentario || ""]; }
       return [fmtF(m.fecha), fmtF(addDias(m.fecha, DIAS_SALDO)), m.nombre, m.dni, m.items.map(it => it.cantidad + " " + it.tipo).join(", "), m.monto, r2(m.monto - Math.max(f.saldo, 0)), r2(Math.max(f.saldo, 0)), f.estado,
         lr ? `${v.placa || ""} ${fmtF(lr.fecha)}${etqViaje(lr)}` : "", m.comentario || ""]; }), [5, 6, 7]);
   hoja(wb, "Ajustes y comentarios", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Código", "Sección", "Material", "Descripción", "Cantidad", "Efecto", "Comentario"], ajs);
