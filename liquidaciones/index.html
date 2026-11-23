@@ -168,6 +168,7 @@
   <button data-v="liquidar">🧾 Liquidaciones</button>
   <button data-v="reporte">💰 Cierre del día: pagos y descuentos</button>
   <button data-v="dashboard">📊 Dashboard</button>
+  <button data-v="analisis">📈 Análisis</button>
   <button data-v="traza">🔎 Trazabilidad</button>
   <div class="sec">Datos</div>
   <button data-v="productos">🏷️ Productos</button>
@@ -747,7 +748,8 @@ function calcBase(l) {
   r.pagado = r2(cob.filter(c => c.tipo === "pago").reduce((a, c) => a + c.monto, 0));
   r.descontado = r2(cob.filter(c => c.tipo === "descuento").reduce((a, c) => a + c.monto, 0));
   r.otro = r2(cob.filter(c => c.rubro === "otro").reduce((a, c) => a + c.monto, 0));   // motivo "Otro": no cubre el faltante de la liquidación
-  r.cubierto = r2(r.pagado + r.descontado - r.otro);
+  r.consumo = r2(cob.filter(c => c.tipo === "consumo").reduce((a, c) => a + c.monto, 0));   // consumo interno: cubre el faltante, nadie lo paga
+  r.cubierto = r2(r.pagado + r.descontado + r.consumo - r.otro);
   r.pendiente = r2(r.aCobrar - r.cubierto);
   return r;
 }
@@ -846,6 +848,9 @@ function calc(l) {
     r.rub[k] = { deuda: r2(deuda[k]), cubierto: cub, pend: r2(Math.min(Math.max(0, deuda[k] - cub), Math.max(0, r.pendiente))) }; });
   return r;
 }
+const RESP_CONSUMO = ["CARLOS", "ULISES", "WALTER"];
+const tipoTxt = x => x.tipo === "pago" ? "Pago" : x.tipo === "consumo" ? "Consumo interno" : "Descuento";
+const tipoCls = x => x.tipo === "pago" ? "pos" : x.tipo === "consumo" ? "azul" : "neg";
 const RUBROS = { vac: "Vacíos", liq: "Productos", otro: "Otro" };
 
 function estadoTag(l) {
@@ -857,7 +862,7 @@ function estadoTag(l) {
 // =====================================================================
 // Navegación
 // =====================================================================
-const TITULOS = { liquidar: "Liquidaciones", reporte: "Cierre del día: total pagado y descontado al personal", traza: "Trazabilidad de faltantes y sobrantes", dashboard: "Dashboard",
+const TITULOS = { liquidar: "Liquidaciones", reporte: "Cierre del día: total pagado y descontado al personal", traza: "Trazabilidad de faltantes y sobrantes", dashboard: "Dashboard", analisis: "Análisis: detalle del plan, rechazos y hectolitros",
   productos: "Productos: catálogo de SKU, presentación y precios", tripulacion: "Tripulación del día", personal: "Personal", vehiculos: "Vehículos", config: "Configuración" };
 function ir(v) {
   VISTA = v;
@@ -880,7 +885,7 @@ function render() {
   const m = $("main");
   if (VISTA === "inventario") VISTA = "liquidar";
   if (sincCatalogo()) guardar();
-  ({ liquidar: vLiquidar, reporte: vReporte, dashboard: vDashboard, traza: vTraza, productos: vProductos, tripulacion: vTripulacion, personal: vPersonal, vehiculos: vVehiculos, config: vConfig })[VISTA](m);
+  ({ liquidar: vLiquidar, reporte: vReporte, dashboard: vDashboard, analisis: vAnalisis, traza: vTraza, productos: vProductos, tripulacion: vTripulacion, personal: vPersonal, vehiculos: vVehiculos, config: vConfig })[VISTA](m);
 }
 
 // =====================================================================
@@ -1442,9 +1447,9 @@ function FECHA_PDF(l) { FECHA = l.fecha; $("fecha").value = FECHA; }
 function seccionCobro(l, c, trip) {
   const cerrada = l.estado === "cerrada";
   const filas = (l.cobros || []).map(x => `<tr>
-      <td><span class="tag ${x.tipo === "pago" ? "pos" : "neg"}">${x.tipo === "pago" ? "Pago" : "Descuento"}</span></td>
-      <td>${esc(x.nombre)}${x.dni ? `<br><small class="ayuda">DNI ${esc(x.dni)}</small>` : ""}</td>
-      <td>${x.rubro ? `<span class="tag ${x.rubro === "vac" ? "azul" : x.rubro === "otro" ? "ok" : "warn"}">${RUBROS[x.rubro]}</span> ` : ""}${x.razon ? `<i>“${esc(x.razon)}”</i> · ` : ""}${x.motivo === "correo" ? `<span class="tag azul">✉ Por correo</span> ` : ""}${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? ` · Op. ${esc(x.operacion)}` : "") + `${x.recibe ? ` · Recibió: ${esc(x.recibe)}` : ""}` : esc({ persona: "Tripulante", tripulacion: "Toda la tripulación (partes iguales)", otro: "Otra persona", varios: `Dividido entre ${x.partes || "varias"} personas` }[x.modo] || "")}</td>
+      <td><span class="tag ${tipoCls(x)}">${tipoTxt(x)}</span></td>
+      <td>${x.tipo === "consumo" ? `Responsable: <b>${esc(x.nombre)}</b>` : esc(x.nombre)}${x.dni ? `<br><small class="ayuda">DNI ${esc(x.dni)}</small>` : ""}</td>
+      <td>${x.rubro ? `<span class="tag ${x.rubro === "vac" ? "azul" : x.rubro === "otro" ? "ok" : "warn"}">${RUBROS[x.rubro]}</span> ` : ""}${x.razon ? `<i>“${esc(x.razon)}”</i> · ` : ""}${x.motivo === "correo" ? `<span class="tag azul">✉ Por correo</span> ` : ""}${x.tipo === "consumo" ? `Nadie paga${x.comentario ? " · " + esc(x.comentario) : ""}` : x.tipo === "pago" ? esc(x.medio) + (x.operacion ? ` · Op. ${esc(x.operacion)}` : "") + `${x.recibe ? ` · Recibió: ${esc(x.recibe)}` : ""}` : esc({ persona: "Tripulante", tripulacion: "Toda la tripulación (partes iguales)", otro: "Otra persona", varios: `Dividido entre ${x.partes || "varias"} personas` }[x.modo] || "")}</td>
       <td class="num"><b>${soles(x.monto, false)}</b></td>
       <td>${cerrada ? "" : `<button class="x" data-delcob="${x.id}" title="Quitar">✕</button>`}</td></tr>`).join("");
   const opcTrip = trip.map(t => `<option value="${esc(t.personaId)}">${esc(t.nombre)} (${esc(t.funcion)})</option>`).join("");
@@ -1460,10 +1465,18 @@ function seccionCobro(l, c, trip) {
       <label class="f grow" id="cRazonW" style="${rubDef === "otro" ? "" : "display:none"}">Razón<input id="cRazon" maxlength="120" placeholder="Ej. multa por papeleta, adelanto, merma de cajas rotas"></label>`;
     form = `<div class="cobro-form">
       <div class="row" style="margin-bottom:10px">
-        <div class="seg"><button data-tipo="pago" class="${FORM.tipo === "pago" ? "on" : ""}">💵 Registrar pago</button><button data-tipo="descuento" class="${FORM.tipo === "descuento" ? "on" : ""}">📉 Enviar a descuento</button>${c.rub.vac.pend > 0 ? `<button data-tipo="neteo" class="${FORM.tipo === "neteo" ? "on" : ""}">🔄 Neteo</button>` : ""}</div>
+        <div class="seg"><button data-tipo="pago" class="${FORM.tipo === "pago" ? "on" : ""}">💵 Registrar pago</button><button data-tipo="descuento" class="${FORM.tipo === "descuento" ? "on" : ""}">📉 Enviar a descuento</button>${hayPend ? `<button data-tipo="consumo" class="${FORM.tipo === "consumo" ? "on" : ""}">🏷️ Consumo interno</button>` : ""}${c.rub.vac.pend > 0 ? `<button data-tipo="neteo" class="${FORM.tipo === "neteo" ? "on" : ""}">🔄 Neteo</button>` : ""}</div>
         ${hayPend ? "" : `<span class="ayuda" style="margin:0">La liquidación ya está cubierta: solo puedes registrar pagos o descuentos por motivo <b>Otro</b>.</span>`}
       </div>
-      ${FORM.tipo === "neteo" ? formNeteo(l, trip, c) : FORM.tipo === "pago" ? `
+      ${FORM.tipo === "consumo" ? `
+      <p class="ayuda" style="margin-top:0"><b>Consumo interno:</b> la diferencia fue consumo de la empresa. Cubre el faltante, <b>no se descuenta a nadie ni se cobra</b>; queda registrado con su responsable en el cierre del día.</p>
+      <div class="row">
+        <label class="f">Responsable<select id="kResp"><option value="">— Elige —</option>${RESP_CONSUMO.map(r => `<option>${r}</option>`).join("")}</select></label>
+        <label class="f">Corresponde a<select id="kRubro">${["vac", "liq"].map(k => `<option value="${k}" ${k === (c.rub.vac.pend > 0 ? "vac" : "liq") ? "selected" : ""}>${RUBROS[k]}${c.rub[k].pend > 0 ? ` (falta ${soles(c.rub[k].pend, false)})` : ""}</option>`).join("")}</select></label>
+        <label class="f grow">Comentario<input id="kCom" placeholder="Ej. consumo en almacén, degustación"></label>
+        <label class="f">Monto (S/)<input id="kMonto" type="number" step="0.01" min="0.01" value="${c.pendiente.toFixed(2)}" style="width:110px"></label>
+        <button class="primary" id="kAgregar">Registrar consumo</button>
+      </div>` : FORM.tipo === "neteo" ? formNeteo(l, trip, c) : FORM.tipo === "pago" ? `
       <div class="row">
         <label class="f grow">¿Quién paga?
           <select id="cPersona">${opcTrip ? `<option value="" selected>— Elige un tripulante —</option>${opcTrip}` : `<option value="">— Este vehículo no tiene tripulación asignada —</option>`}</select></label>
@@ -1509,6 +1522,7 @@ function seccionCobro(l, c, trip) {
       <div>A cobrar${c.credito ? "" : " (neto)"}<br><b>${soles(c.aCobrar, false)}</b></div>
       <div>Pagado<br><b class="pos">${soles(c.pagado, false)}</b></div>
       <div>Descuento<br><b class="neg">${soles(c.descontado, false)}</b></div>
+      ${c.consumo ? `<div>Consumo interno<br><b style="color:var(--brand)">${soles(c.consumo, false)}</b></div>` : ""}
       <div>Pendiente<br><b class="${c.pendiente > 0 ? "neg" : "pos"}">${soles(Math.max(c.pendiente, 0), false)}</b></div>
       ${c.rub.vac.deuda || c.rub.liq.deuda || c.rub.vac.cubierto || c.rub.liq.cubierto ? `<div style="font-size:12.5px;line-height:1.6">${["vac", "liq"].filter(k => c.rub[k].deuda || c.rub[k].cubierto).map(k =>
         `<b>${RUBROS[k]}:</b> a cobrar ${soles(c.rub[k].deuda, false)} · cubierto ${soles(c.rub[k].cubierto, false)} · <span class="${c.rub[k].pend > 0 ? "neg" : "pos"}">falta ${soles(c.rub[k].pend, false)}</span>`).join("<br>")}</div>` : ""}
@@ -1668,6 +1682,18 @@ function enlazarCobro(l, c, trip) {
       guardar(); pintarPanel(); render(); toast(`Neteo aplicado: ${soles(monto, false)} del saldo del ${fmtF(rv.f.fecha)} de ${rv.f.owner.nombre}.`);
     };
   }
+  if ($("kAgregar")) {
+    $("kRubro").onchange = e => { const p = c.rub[e.target.value].pend; $("kMonto").value = (p > 0 ? p : c.pendiente).toFixed(2); };
+    $("kAgregar").onclick = () => {
+      const err = t => { $("cErr").textContent = t; };
+      const resp = $("kResp").value, monto = r2(+$("kMonto").value);
+      if (!resp) return err("Elige el responsable del consumo interno.");
+      if (!(monto > 0)) return err("Ingresa un monto mayor a 0.");
+      if (monto > c.pendiente + 0.001) return err(`El monto no puede superar lo pendiente (${soles(c.pendiente, false)}).`);
+      l.cobros.push({ id: uid(), tipo: "consumo", rubro: $("kRubro").value, personaId: null, nombre: resp, dni: "", monto, comentario: $("kCom").value.trim(), modo: "consumo", fecha: new Date().toISOString() });
+      FORM.tipo = "pago"; guardar(); pintarPanel(); render(); toast(`Consumo interno de ${soles(monto, false)} registrado (responsable ${resp}).`);
+    };
+  }
   const cr = $("cRubro");
   if (cr) cr.onchange = () => {
     FORM.rubro = cr.value; const ot = cr.value === "otro";
@@ -1767,19 +1793,21 @@ function vReporte(m) {
     : REP.aj === "CORREO_R" ? a.codigo === "CORREO" && a.estado === "regularizado" : ["ZPD7", "ZPD4", "CORREO"].includes(a.codigo);
   const ls = REP.aj ? lsTexto.filter(l => (l.ajustes || []).some(cumpleAj)) : lsTexto;
   const cuenta = k => lsTexto.reduce((n, l) => n + (l.ajustes || []).filter(a => k === "CORREO_P" ? a.codigo === "CORREO" && a.estado !== "regularizado" : a.codigo === k).length, 0);
+  let cs = 0; const porConsumo = [];
   let aC = 0, pg = 0, ds = 0, sob = 0, fal = 0, fav = 0, bse = 0, nt = 0, pnd = 0, ot = 0, nCer = 0;
   const porMedio = {}, porPersona = {}, porColab = {}, porRecibe = {};
   ls.forEach(l => {
     const v = vehiculo(l.vehId) || {};
-    (l.cobros || []).forEach(x => {
+    (l.cobros || []).filter(x => x.tipo !== "consumo").forEach(x => {
       const k = (x.dni || "") + "|" + x.nombre;
       const p = porColab[k] = porColab[k] || { nombre: x.nombre, dni: x.dni, pagado: 0, descontado: 0, items: [], placas: new Set() };
       if (x.tipo === "pago") p.pagado = r2(p.pagado + x.monto); else p.descontado = r2(p.descontado + x.monto);
       p.placas.add(v.placa + (v.bk ? " — " + v.bk : "")); p.items.push({ l, v, x });
     });
     const c = calc(l); aC += c.aCobrar; pg += c.pagado; ds += c.descontado; sob += c.sobr; fal += c.falt; fav += c.aFavorVac || 0;
+    cs += c.consumo || 0; (l.cobros || []).filter(x => x.tipo === "consumo").forEach(x => porConsumo.push({ l, v, x }));
     bse += c.aCobrarBase; nt += c.credito; ot += c.otro || 0; if (l.estado === "cerrada") nCer++; else pnd += Math.max(0, c.pendiente);
-    (l.cobros || []).forEach(x => {
+    (l.cobros || []).filter(x => x.tipo !== "consumo").forEach(x => {
       if (x.tipo === "pago") { porMedio[x.medio] = r2((porMedio[x.medio] || 0) + x.monto);
         const rk = x.recibe || "(sin registrar)"; const r = porRecibe[rk] = porRecibe[rk] || { total: 0, n: 0, medios: {} };
         r.total = r2(r.total + x.monto); r.n++; r.medios[x.medio] = r2((r.medios[x.medio] || 0) + x.monto); }
@@ -1808,12 +1836,13 @@ function vReporte(m) {
       <h2 style="margin-top:0">Resumen ${REP.desde === REP.hasta ? "del " + fmtF(REP.desde) : `del ${fmtF(REP.desde)} al ${fmtF(REP.hasta)}`}</h2>
       <p style="margin:0 0 10px;line-height:1.7">Se liquidaron <b>${ls.length}</b> viaje(s): <b>${nCer}</b> cerrado(s)${ls.length - nCer ? ` y <b class="neg">${ls.length - nCer}</b> sin cerrar` : ""}.
         Por diferencias se debía cobrar <b>${soles(r2(bse), false)}</b>${nt ? `; se netearon <b class="pos">${soles(r2(nt), false)}</b> con saldos a favor, quedando <b>${soles(r2(aC), false)}</b>` : ""}.
-        De eso se cubrió con <b class="pos">${soles(r2(pg), false)}</b> en pagos y <b class="neg">${soles(r2(ds), false)}</b> en descuentos${pnd ? `, y <b class="neg">faltan ${soles(r2(pnd), false)}</b>` : ""}.</p>
+        De eso se cubrió con <b class="pos">${soles(r2(pg), false)}</b> en pagos, <b class="neg">${soles(r2(ds), false)}</b> en descuentos${cs ? ` y <b>${soles(r2(cs), false)}</b> como consumo interno` : ""}${pnd ? `, y <b class="neg">faltan ${soles(r2(pnd), false)}</b>` : ""}.</p>
       <div class="kpis" style="margin:0">
         <div class="kpi"><span>① Se debía cobrar</span><b>${soles(r2(bse), false)}</b><small class="ayuda" style="display:block">faltante neto de los viajes</small></div>
         <div class="kpi"><span>② Neteado con saldo a favor</span><b class="pos">${soles(r2(nt), false)}</b><small class="ayuda" style="display:block">neteos manuales de vacíos</small></div>
         <div class="kpi"><span>③ Pagado (dinero recibido)</span><b class="pos">${soles(r2(pg), false)}</b><small class="ayuda" style="display:block">${Object.entries(porMedio).map(([k, v]) => `${esc(k)} ${soles(v, false)}`).join(" · ") || "—"}</small></div>
         <div class="kpi"><span>④ Enviado a descuento</span><b class="neg">${soles(r2(ds), false)}</b><small class="ayuda" style="display:block">se descuenta al personal</small></div>
+        ${cs ? `<div class="kpi"><span>Consumo interno</span><b style="color:var(--brand)">${soles(r2(cs), false)}</b><small class="ayuda" style="display:block">nadie lo paga</small></div>` : ""}
         <div class="kpi"><span>⑤ Falta cubrir</span><b class="${pnd ? "neg" : "pos"}">${soles(r2(pnd), false)}</b><small class="ayuda" style="display:block">${pnd ? "liquidaciones sin cerrar" : "todo cubierto"}</small></div>
       </div>
       <p class="ayuda" style="margin:10px 0 0">Diferencias del periodo: sobrante ${soles(r2(sob))} · faltante ${soles(r2(fal))} · saldo a favor de vacíos generado ${soles(r2(fav), false)}${ot ? ` · incluye ${soles(r2(ot), false)} por motivo “Otro” (no cubren faltantes)` : ""}.</p>
@@ -1828,6 +1857,11 @@ function vReporte(m) {
       <tr><td colspan="3"><b>TOTAL</b></td><td class="num pos"><b>${soles(r2(pg), false)}</b></td><td class="num neg"><b>${soles(r2(ds), false)}</b></td><td class="num"><b>${soles(r2(pg + ds), false)}</b></td><td></td></tr>
       </tbody></table>` : `<div class="vacio">Aún no hay pagos ni descuentos registrados en este rango.</div>`}
     </div>
+    ${porConsumo.length ? (() => { const pr = {}; porConsumo.forEach(o => pr[o.x.nombre] = r2((pr[o.x.nombre] || 0) + o.x.monto));
+      return `<div class="card scroll"><h2>🏷️ Consumo interno <span class="tag azul">Total ${soles(r2(cs), false)}</span> ${Object.entries(pr).map(([k, v]) => `<span class="tag">${esc(k)}: ${soles(v, false)}</span>`).join(" ")}</h2>
+        <table><thead><tr><th>Fecha</th><th>Placa — Nombre</th><th>Responsable</th><th>Corresponde a</th><th>Comentario</th><th class="num">Monto</th><th></th></tr></thead><tbody>
+        ${porConsumo.map(({ l, v, x }) => `<tr><td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}${etqViaje(l)}</td><td><b>${esc(x.nombre)}</b></td><td>${RUBROS[x.rubro] || ""}</td><td>${esc(x.comentario || "")}</td><td class="num"><b>${soles(x.monto, false)}</b></td><td><button data-ver="${l.id}">Ver</button></td></tr>`).join("")}
+        </tbody></table><p class="ayuda">No se descuenta ni se cobra a nadie: cubre el faltante de la liquidación.</p></div>`; })() : ""}
     ${(() => { const os = []; ls.forEach(l => (l.cobros || []).filter(x => x.rubro === "otro").forEach(x => os.push({ l, x, v: vehiculo(l.vehId) || {} })));
       if (!os.length) return "";
       const tp = r2(os.filter(o => o.x.tipo === "pago").reduce((a, o) => a + o.x.monto, 0)), td = r2(os.filter(o => o.x.tipo !== "pago").reduce((a, o) => a + o.x.monto, 0));
@@ -1857,7 +1891,7 @@ function vReporte(m) {
         ${Object.entries(porRecibe).sort((a, b) => b[1].total - a[1].total).map(([k, r]) => `<tr><td><b>${esc(k)}</b></td><td class="num">${r.n}</td><td style="font-size:12.5px">${Object.entries(r.medios).map(([mm, v]) => esc(mm) + " " + soles(v, false)).join(" · ")}</td><td class="num pos"><b>${soles(r.total, false)}</b></td></tr>`).join("")}
         <tr><td colspan="3"><b>Total</b></td><td class="num"><b>${soles(r2(pg), false)}</b></td></tr></tbody></table>` : `<div class="vacio">Sin pagos.</div>`}</div>
       <div class="card"><h2>Pagos y descuentos por rubro</h2>${(() => { const t = { vac: [0, 0], liq: [0, 0], otro: [0, 0], "": [0, 0] };
-        ls.forEach(l => (l.cobros || []).forEach(x => { const k = x.rubro || ""; t[k][x.tipo === "pago" ? 0 : 1] = r2(t[k][x.tipo === "pago" ? 0 : 1] + x.monto); }));
+        ls.forEach(l => (l.cobros || []).filter(x => x.tipo !== "consumo").forEach(x => { const k = x.rubro || ""; t[k][x.tipo === "pago" ? 0 : 1] = r2(t[k][x.tipo === "pago" ? 0 : 1] + x.monto); }));
         return `<table><thead><tr><th>Corresponde a</th><th class="num">Pagado</th><th class="num">Descontado</th></tr></thead><tbody>
           ${[["vac", "🍾 Vacíos"], ["liq", "🍺 Productos"], ["otro", "📝 Otro"], ["", "Sin especificar"]].filter(([k]) => (k && k !== "otro") || t[k][0] || t[k][1]).map(([k, n]) => `<tr><td>${n}</td><td class="num pos">${soles(t[k][0], false)}</td><td class="num neg">${soles(t[k][1], false)}</td></tr>`).join("")}
           </tbody></table>`; })()}</div>
@@ -1874,7 +1908,7 @@ function vReporte(m) {
         <td>${fmtF(l.fecha)}</td><td><b>${esc(v.placa)}</b>${v.bk ? " — " + esc(v.bk) : ""}${etqViaje(l) ? `<br><span class="tag azul">${etqViaje(l).slice(3)}</span>` : ""}</td><td>${esc(l.pdf.enc.viaje)}</td><td>${estadoTag(l)}</td>
         <td class="num ${cls(c.neto)}">${soles(c.neto)}</td><td class="num pos">${c.aFavor ? soles(c.aFavor, false) : "—"}</td><td class="num">${soles(c.aCobrar, false)}</td><td class="num pos">${soles(c.pagado, false)}</td><td class="num neg">${soles(c.descontado, false)}</td>
         <td><button data-ver="${l.id}">Ver detalle</button> <button data-desg="${l.id}">▾</button></td></tr>
-        <tr class="det" id="d_${l.id}"><td colspan="10">${(l.cobros || []).length ? (l.cobros.map(x => `<div>${x.tipo === "pago" ? "💵 Pago" : "📉 Descuento"} · ${esc(x.nombre)}${x.dni ? " (" + esc(x.dni) + ")" : ""} · ${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") + (x.recibe ? " · Recibió: " + esc(x.recibe) : "") : (x.modo === "tripulacion" ? "partes iguales" : x.modo === "varios" ? `dividido entre ${x.partes}` : "")}${x.rubro === "otro" ? ` · <span class="tag ok">Otro</span> <i>“${esc(x.razon || "")}”</i>` : ""} · <b>${soles(x.monto, false)}</b></div>`).join("")) : `<span class="vacio">Sin pagos ni descuentos.</span>`}
+        <tr class="det" id="d_${l.id}"><td colspan="10">${(l.cobros || []).length ? (l.cobros.map(x => `<div>${x.tipo === "pago" ? "💵 Pago" : x.tipo === "consumo" ? "🏷️ Consumo interno (responsable)" : "📉 Descuento"} · ${esc(x.nombre)}${x.dni ? " (" + esc(x.dni) + ")" : ""} · ${x.tipo === "pago" ? esc(x.medio) + (x.operacion ? " Op. " + esc(x.operacion) : "") + (x.recibe ? " · Recibió: " + esc(x.recibe) : "") : (x.modo === "tripulacion" ? "partes iguales" : x.modo === "varios" ? `dividido entre ${x.partes}` : "")}${x.rubro === "otro" ? ` · <span class="tag ok">Otro</span> <i>“${esc(x.razon || "")}”</i>` : ""} · <b>${soles(x.monto, false)}</b></div>`).join("")) : `<span class="vacio">Sin pagos ni descuentos.</span>`}
           <div class="ayuda" style="margin-top:6px">Tripulación: ${tripLiq(l).map(t => esc(t.nombre) + " (" + esc(t.funcion) + ")").join(", ") || "—"}</div></td></tr>`; }).join("")}
       </tbody></table>` : `<div class="vacio">No hay liquidaciones en este rango.</div>`}
     </div>`;
@@ -2156,7 +2190,7 @@ function indiceColab() {
     const v = vehiculo(l.vehId) || {}, c = calc(l);
     tripLiq(l).forEach(t => get(t).ev.push({ fecha: l.fecha, l, v, tipo: "Liquidación",
       det: `${t.funcion} · viaje ${l.pdf.enc.viaje}${etqViaje(l)} · ${l.estado === "cerrada" ? "cerrada" : "en proceso"}${(l.ajustes || []).length ? ` · ${l.ajustes.length} ajuste(s) ZPD/nota` : ""}${l.comentarioCierre ? ` · “${l.comentarioCierre}”` : ""}`, monto: c.neto, nota: "Neto del vehículo" }));
-    (l.cobros || []).forEach(x => get(x).ev.push({ fecha: l.fecha, l, v, tipo: x.tipo === "pago" ? "Pago" : "Descuento",
+    (l.cobros || []).filter(x => x.tipo !== "consumo").forEach(x => get(x).ev.push({ fecha: l.fecha, l, v, tipo: x.tipo === "pago" ? "Pago" : "Descuento",
       det: x.tipo === "pago" ? `${x.medio}${x.operacion ? " · Op. " + x.operacion : ""}${x.recibe ? " · Recibió: " + x.recibe : ""}` : (x.modo === "tripulacion" ? "Partes iguales con la tripulación" : "Descuento directo"),
       monto: x.tipo === "pago" ? x.monto : -x.monto }));
   });
@@ -2844,7 +2878,7 @@ function vDashboard(m) {
       .map(f => ({ l: `${f.v.placa}${f.v.bk ? " — " + f.v.bk : ""} · V${nv(f.l)} · ${fmtF(f.l.fecha)}`, v: f.c.aCobrarBase, t: f.l.estado === "cerrada" ? "cerrada" : "en proceso" })), S2, () => "neg")}</div>`;
   } else if (DSH.tab === "col") {
     const P = {};
-    filas.forEach(({ l, v }) => (l.cobros || []).forEach(x => { const k = (x.dni || "") + "|" + x.nombre; const p = P[k] = P[k] || { nombre: x.nombre, dni: x.dni, desc: 0, pago: 0, n: 0, placas: new Set() };
+    filas.forEach(({ l, v }) => (l.cobros || []).filter(x => x.tipo !== "consumo").forEach(x => { const k = (x.dni || "") + "|" + x.nombre; const p = P[k] = P[k] || { nombre: x.nombre, dni: x.dni, desc: 0, pago: 0, n: 0, placas: new Set() };
       if (x.tipo === "pago") p.pago += x.monto; else p.desc += x.monto; p.n++; p.placas.add(v.placa); }));
     const arr = Object.values(P).sort((a, b) => b.desc - a.desc);
     cuerpo = arr.length ? `<div class="card"><h2>Descuentos por colaborador (top 15)</h2>${barrasHTML(arr.filter(p => p.desc > 0).slice(0, 15).map(p => ({ l: p.nombre, v: r2(p.desc) })), S2, () => "neg")}</div>
@@ -2869,7 +2903,7 @@ function vDashboard(m) {
       <div class="card scroll"><h2>Detalle por fecha</h2><table><thead><tr><th>Fecha</th><th class="num">Viajes</th><th class="num">A cobrar</th><th class="num">Neteado</th><th class="num">Pagado</th><th class="num">Descontado</th><th class="num">Pendiente</th></tr></thead><tbody>
       ${ds.map(d => { const p = P[d]; return `<tr><td><b>${fmtF(d)}</b></td><td class="num">${p.n}</td><td class="num">${S2(p.base)}</td><td class="num pos">${S2(p.net)}</td><td class="num pos">${S2(p.pago)}</td><td class="num neg">${S2(p.desc)}</td><td class="num ${p.pend ? "neg" : ""}">${S2(p.pend)}</td></tr>`; }).join("")}</tbody></table></div>`;
   } else {
-    cuerpo = `<div class="card vacio">La efectividad por ruta, rechazos, rechazos por hectolitros, horas trabajadas y demora de clientes se calcularán con el informe que pegues en el apartado <b>Análisis</b> (en preparación).</div>`;
+    cuerpo = dashAnalisis(anaFiltradas(DSH.desde, DSH.hasta, DSH.q, "", ""));
   }
   m.innerHTML = `<div class="card"><div class="row">
       <label class="f">Desde<input type="date" id="dDesde" value="${DSH.desde}"></label>
@@ -2884,6 +2918,162 @@ function vDashboard(m) {
   $("d30").onclick = () => { DSH.hasta = FECHA; DSH.desde = addDias(FECHA, -29); render(); };
   m.querySelectorAll("[data-dt]").forEach(b => b.onclick = () => { DSH.tab = b.dataset.dt; render(); });
   const q = $("dQ"); q.oninput = () => { DSH.q = q.value; clearTimeout(q._t); q._t = setTimeout(() => { render(); const n = $("dQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 300); };
+}
+
+// =====================================================================
+// VISTA: Análisis — pegar el "Detalle del plan" (hoja de ruta con estado BEES y alertas) desde Excel
+// Columnas: EDT · Ruta · Viaje · ID Cliente · Cliente · HL plan · Cajas · Supervisor · BDR · Ventana · Estado BEES · Alerta · Tipo alerta · Fecha hora alerta · Retroalimentación
+// =====================================================================
+const ANA_COLS = [["edt", "EDT"], ["ruta", "Ruta"], ["viaje", "Viaje"], ["idCli", "ID Cliente"], ["cliente", "Cliente"], ["hl", "HL plan"], ["cajas", "Cajas"], ["supervisor", "Supervisor"],
+  ["bdr", "BDR"], ["ventana", "Ventana"], ["estado", "Estado BEES"], ["alerta", "Alerta"], ["tipoAlerta", "Tipo alerta"], ["fhAlerta", "Fecha hora alerta"], ["retro", "Retroalimentación"]];
+const ANA_ALIAS = { edt: /^edt|transport|empresa/, ruta: /^ruta|^bk/, viaje: /^viaje/, idCli: /id.?cliente|cod.*cliente|^idcli/, cliente: /^cliente|razon|nombre/, hl: /^hl|hecto/,
+  cajas: /^caja/, supervisor: /^supervisor/, bdr: /^bdr|vendedor/, ventana: /^ventana|horario/, estado: /estado/, alerta: /^alerta$/, tipoAlerta: /tipo.*alerta/, fhAlerta: /fecha.*hora|hora.*alerta/, retro: /retro|comentario|observ/ };
+let ANA = { tab: "datos", fecha: null, desde: null, hasta: null, q: "", ruta: "", estado: "", pag: 0 };
+const numES = v => { const t = String(v ?? "").trim().replace(/\s/g, ""); if (!t) return 0; const n = /,\d{1,3}$/.test(t) && !/\.\d{3},/.test(t) ? +t.replace(/\./g, "").replace(",", ".") : +t.replace(/,/g, ""); return isNaN(n) ? 0 : n; };
+function estadoAna(e) {
+  const t = sinTilde(e);
+  if (/rechaz/.test(t)) return "Rechazado"; if (/parcial/.test(t)) return "Entrega parcial"; if (/entregad/.test(t)) return "Entregado";
+  if (/reprogram/.test(t)) return "Reprogramado"; if (/pendiente|por visitar/.test(t)) return "Pendiente visitar"; if (/no visit|ausente|cerrad/.test(t)) return "No visitado";
+  return e ? String(e).trim() : "Sin estado";
+}
+function parsearAnalisis(txt) {
+  const filas = txt.replace(/\r/g, "").split("\n").filter(r => r.trim()).map(r => r.split("\t"));
+  if (!filas.length) return { filas: [], err: "No hay datos." };
+  let map = null, ini = 0;
+  const h = filas[0].map(x => sinTilde(x).trim());
+  if (h.some(x => /^ruta$|estado|id.?cliente|^hl/.test(x))) {
+    map = {}; h.forEach((x, i) => { const k = Object.keys(ANA_ALIAS).find(k => !(k in map) && ANA_ALIAS[k].test(x)); if (k) map[k] = i; }); ini = 1;
+    if (!("ruta" in map) || !("idCli" in map)) return { filas: [], err: "No encontré las columnas Ruta e ID Cliente en los títulos." };
+  } else { map = {}; ANA_COLS.forEach(([k], i) => map[k] = i); }      // sin títulos: orden fijo del Detalle del plan
+  const out = [];
+  for (const r of filas.slice(ini)) {
+    const g = k => k in map ? String(r[map[k]] ?? "").trim() : "";
+    if (!g("ruta") || !g("idCli")) continue;
+    out.push({ edt: g("edt"), ruta: g("ruta").toUpperCase(), viaje: g("viaje") || "1", idCli: g("idCli"), cliente: g("cliente"), hl: numES(g("hl")), cajas: numES(g("cajas")),
+      supervisor: g("supervisor"), bdr: g("bdr"), ventana: g("ventana"), estadoRaw: g("estado"), estado: estadoAna(g("estado")), alerta: g("alerta"), tipoAlerta: g("tipoAlerta"), fhAlerta: g("fhAlerta"), retro: g("retro") });
+  }
+  return { filas: out, err: out.length ? "" : "No se reconoció ninguna fila (revisa que copies la tabla con sus columnas)." };
+}
+const placaDeRuta = ruta => { const v = S.vehiculos.find(x => norm(x.bk || "") === norm(ruta)); return v ? v.placa : ""; };
+function anaFiltradas(desde, hasta, q, ruta, estado) {
+  return ((S.analisis || {}).filas || []).filter(f => f.fecha >= desde && f.fecha <= hasta && (!ruta || f.ruta === ruta) && (!estado || f.estado === estado)
+    && hayQ(q, [f.ruta, f.cliente, f.idCli, f.supervisor, f.bdr, f.edt, f.estado, f.tipoAlerta, placaDeRuta(f.ruta)].join(" ")));
+}
+const esEntrega = f => f.estado === "Entregado" || f.estado === "Entrega parcial";
+const esDemora = f => /demor|tiempo|espera|permanen|tard/i.test(sinTilde(f.tipoAlerta || ""));
+function agrupaAna(fs, clave) {
+  const G = {};
+  fs.forEach(f => { const k = clave(f) || "(sin dato)"; const g = G[k] = G[k] || { k, n: 0, hl: 0, cajas: 0, ent: 0, hlEnt: 0, rec: 0, hlRec: 0, par: 0, pend: 0, rep: 0, alertas: 0, demora: 0, rutas: new Set() };
+    g.n++; g.hl += f.hl; g.cajas += f.cajas; g.rutas.add(f.ruta);
+    if (esEntrega(f)) { g.ent++; g.hlEnt += f.hl; } if (f.estado === "Entrega parcial") g.par++;
+    if (f.estado === "Rechazado") { g.rec++; g.hlRec += f.hl; } if (f.estado === "Pendiente visitar") g.pend++; if (f.estado === "Reprogramado") g.rep++;
+    if (/^s[ií]/i.test(f.alerta) || f.tipoAlerta) g.alertas++; if (esDemora(f)) g.demora++; });
+  return Object.values(G).map(g => ({ ...g, efec: g.n ? g.ent / g.n : 0, efecHl: g.hl ? g.hlEnt / g.hl : 0, pRec: g.n ? g.rec / g.n : 0, pRecHl: g.hl ? g.hlRec / g.hl : 0 }));
+}
+const pct = x => (x * 100).toFixed(1) + "%", hl2 = x => (+x).toFixed(2);
+function dashAnalisis(fs) {
+  if (!fs.length) return `<div class="card vacio">No hay datos del plan en este rango. Pégalos en <b>Análisis → Datos</b>.</div>`;
+  const T = agrupaAna(fs, () => "Total")[0], rutas = agrupaAna(fs, f => f.ruta).sort((a, b) => b.hlRec - a.hlRec);
+  const sup = agrupaAna(fs, f => f.supervisor).sort((a, b) => b.hl - a.hl), est = agrupaAna(fs, f => f.estado).sort((a, b) => b.n - a.n);
+  const dias = agrupaAna(fs, f => f.fecha).sort((a, b) => a.k.localeCompare(b.k));
+  const tipos = {}; fs.filter(f => f.tipoAlerta).forEach(f => tipos[f.tipoAlerta] = (tipos[f.tipoAlerta] || 0) + 1);
+  const tablaG = (arr, titulo, extra) => `<table><thead><tr><th>${titulo}</th>${extra ? "<th>Placa</th>" : ""}<th class="num">Clientes</th><th class="num">HL plan</th><th class="num">Cajas</th><th class="num">Entregados</th><th class="num">Rechazos</th><th class="num">HL rechazo</th><th class="num">% rechazo HL</th><th class="num">Pendientes</th><th class="num">Efectividad</th><th class="num">Efectividad HL</th><th class="num">Alertas</th><th class="num">Demoras</th></tr></thead><tbody>
+    ${arr.map(g => `<tr><td><b>${esc(titulo === "Fecha" ? fmtF(g.k) : g.k)}</b></td>${extra ? `<td>${esc(placaDeRuta(g.k))}</td>` : ""}<td class="num">${g.n}</td><td class="num">${hl2(g.hl)}</td><td class="num">${Math.round(g.cajas)}</td><td class="num pos">${g.ent}</td><td class="num neg">${g.rec}</td><td class="num neg">${hl2(g.hlRec)}</td><td class="num">${pct(g.pRecHl)}</td><td class="num">${g.pend}</td><td class="num"><b>${pct(g.efec)}</b></td><td class="num">${pct(g.efecHl)}</td><td class="num">${g.alertas}</td><td class="num">${g.demora}</td></tr>`).join("")}</tbody></table>`;
+  return `<div class="kpis">
+      <div class="kpi"><span>Rutas</span><b>${T.rutas.size}</b><small class="ayuda" style="display:block">${dias.length} día(s)</small></div>
+      <div class="kpi"><span>Clientes</span><b>${T.n}</b></div>
+      <div class="kpi"><span>HL plan</span><b>${hl2(T.hl)}</b><small class="ayuda" style="display:block">${Math.round(T.cajas)} cajas</small></div>
+      <div class="kpi"><span>Efectividad (clientes)</span><b class="pos">${pct(T.efec)}</b><small class="ayuda" style="display:block">${T.ent} entregados</small></div>
+      <div class="kpi"><span>Efectividad (HL)</span><b class="pos">${pct(T.efecHl)}</b></div>
+      <div class="kpi"><span>Rechazos</span><b class="neg">${T.rec}</b><small class="ayuda" style="display:block">${pct(T.pRec)} de clientes</small></div>
+      <div class="kpi"><span>HL rechazados</span><b class="neg">${hl2(T.hlRec)}</b><small class="ayuda" style="display:block">${pct(T.pRecHl)} del HL</small></div>
+      <div class="kpi"><span>Pendientes / reprog.</span><b>${T.pend} / ${T.rep}</b></div>
+      <div class="kpi"><span>Alertas · demoras</span><b>${T.alertas} · ${T.demora}</b></div>
+    </div>
+    <div class="row" style="align-items:stretch;gap:14px">
+      <div class="card grow" style="min-width:320px"><h2>HL rechazados por ruta</h2>${barrasHTML(rutas.filter(g => g.hlRec > 0).slice(0, 15).map(g => ({ l: g.k + (placaDeRuta(g.k) ? " · " + placaDeRuta(g.k) : ""), v: r2(g.hlRec), t: g.rec + " rechazo(s)" })), hl2, () => "neg") || `<div class="vacio">Sin rechazos.</div>`}</div>
+      <div class="card grow" style="min-width:320px"><h2>Efectividad por ruta (clientes entregados)</h2>${barrasHTML([...rutas].sort((a, b) => a.efec - b.efec).slice(0, 15).map(g => ({ l: g.k, v: g.efec, t: `${g.ent} de ${g.n}` })), pct, () => "pos")}</div>
+    </div>
+    <div class="row" style="align-items:stretch;gap:14px">
+      <div class="card grow" style="min-width:320px"><h2>Clientes por estado BEES</h2>${barrasHTML(est.map(g => ({ l: g.k, v: g.n, t: hl2(g.hl) + " HL" })), x => String(x), g => /Rechaz/.test(g.l) ? "neg" : /Entreg/.test(g.l) ? "pos" : "")}</div>
+      <div class="card grow" style="min-width:320px"><h2>Alertas por tipo</h2>${Object.keys(tipos).length ? barrasHTML(Object.entries(tipos).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ l: k, v })), x => String(x)) : `<div class="vacio">Sin alertas.</div>`}
+        <p class="ayuda">“Demoras” cuenta las alertas cuyo tipo menciona demora, tiempo o espera.</p></div>
+    </div>
+    ${dias.length > 1 ? `<div class="card"><h2>HL rechazados por día</h2>${barrasHTML(dias.map(g => ({ l: fmtF(g.k), v: r2(g.hlRec), t: pct(g.pRecHl) })), hl2, () => "neg")}</div>` : ""}
+    <div class="card scroll"><h2>Por ruta</h2>${tablaG(rutas, "Ruta", true)}</div>
+    <div class="card scroll"><h2>Por supervisor</h2>${tablaG(sup, "Supervisor")}</div>
+    ${dias.length > 1 ? `<div class="card scroll"><h2>Por fecha</h2>${tablaG(dias, "Fecha")}</div>` : ""}
+    <p class="ayuda">Efectividad = clientes entregados (incluye entregas parciales) ÷ clientes del plan. El informe no trae horas de llegada y salida, por eso no se calculan horas trabajadas.</p>`;
+}
+function vAnalisis(m) {
+  S.analisis = S.analisis || { filas: [] };
+  ANA.fecha = ANA.fecha || FECHA; if (!ANA.desde) { ANA.desde = FECHA; ANA.hasta = FECHA; }
+  const todas = S.analisis.filas, fs = anaFiltradas(ANA.desde, ANA.hasta, ANA.q, ANA.ruta, ANA.estado);
+  const fechas = {}; todas.forEach(f => { const x = fechas[f.fecha] = fechas[f.fecha] || { n: 0, rutas: new Set() }; x.n++; x.rutas.add(f.ruta); });
+  const rutasR = [...new Set(todas.filter(f => f.fecha >= ANA.desde && f.fecha <= ANA.hasta).map(f => f.ruta))].sort();
+  const estados = [...new Set(todas.map(f => f.estado))].sort();
+  const POR = 200, pags = Math.max(1, Math.ceil(fs.length / POR)); if (ANA.pag >= pags) ANA.pag = 0;
+  m.innerHTML = `
+    <div class="card"><h2>Pegar “Detalle del plan”</h2>
+      <p class="ayuda" style="margin-top:0">Copia la tabla (desde Excel o desde la página, con o sin la fila de títulos) y pégala aquí. Columnas: ${ANA_COLS.map(c => c[1]).join(" · ")}. Si pegas otra vez la misma fecha, ruta, viaje y cliente, se <b>actualiza</b> (por ejemplo, el estado BEES); lo nuevo se agrega debajo.</p>
+      <div class="row"><label class="f">Fecha del plan<input type="date" id="aFecha" value="${ANA.fecha}"></label><span class="ayuda" style="align-self:end;margin:0 0 8px">El informe no trae la fecha: elige a qué día corresponde.</span></div>
+      <textarea id="aPegar" style="min-height:110px;margin-top:8px" placeholder="Pega aquí (Ctrl + V)"></textarea>
+      <div class="row" style="margin-top:8px"><button class="primary" id="aAgregar">Agregar datos</button><span id="aMsg" class="ayuda" style="margin:0"></span></div>
+      ${Object.keys(fechas).length ? `<div style="margin-top:10px"><b style="font-size:12.5px">Días cargados:</b> ${Object.keys(fechas).sort().reverse().map(d => `<span class="chip" style="cursor:default">${fmtF(d)} · ${fechas[d].rutas.size} rutas · ${fechas[d].n} clientes <button class="x" data-adel="${d}" title="Borrar este día">✕</button></span>`).join(" ")}</div>` : ""}
+    </div>
+    <div class="card"><div class="row">
+      <label class="f">Desde<input type="date" id="aDesde" value="${ANA.desde}"></label><label class="f">Hasta<input type="date" id="aHasta" value="${ANA.hasta}"></label>
+      <label class="f">Ruta<select id="aRuta"><option value="">Todas</option>${rutasR.map(r => `<option ${r === ANA.ruta ? "selected" : ""}>${esc(r)}</option>`).join("")}</select></label>
+      <label class="f">Estado BEES<select id="aEst"><option value="">Todos</option>${estados.map(e => `<option ${e === ANA.estado ? "selected" : ""}>${esc(e)}</option>`).join("")}</select></label>
+      <label class="f grow">Buscar (cliente, ID, supervisor, BDR)<input id="aQ" value="${esc(ANA.q)}"></label>
+      <button class="primary" id="aExcel" ${fs.length ? "" : "disabled"}>Descargar Excel</button>
+    </div><div class="seg" style="margin-top:10px"><button data-at="datos" class="${ANA.tab === "datos" ? "on" : ""}">Datos (${fs.length})</button><button data-at="dash" class="${ANA.tab === "dash" ? "on" : ""}">📊 Dashboard</button></div></div>
+    ${ANA.tab === "dash" ? dashAnalisis(fs) : fs.length ? `<div class="card scroll" style="padding:0"><table><thead><tr><th>Fecha</th><th>EDT</th><th>Ruta</th><th>Placa</th><th>Viaje</th><th>ID Cliente</th><th>Cliente</th><th class="num">HL plan</th><th class="num">Cajas</th><th>Supervisor</th><th>BDR</th><th>Ventana</th><th>Estado BEES</th><th>Alerta</th><th>Tipo alerta</th><th>Fecha hora alerta</th><th>Retroalimentación</th></tr></thead><tbody>
+      ${fs.slice(ANA.pag * POR, ANA.pag * POR + POR).map(f => `<tr><td>${fmtF(f.fecha)}</td><td>${esc(f.edt)}</td><td><b>${esc(f.ruta)}</b></td><td>${esc(placaDeRuta(f.ruta))}</td><td>${esc(f.viaje)}</td><td>${esc(f.idCli)}</td><td>${esc(f.cliente)}</td><td class="num">${hl2(f.hl)}</td><td class="num">${f.cajas}</td><td>${esc(f.supervisor)}</td><td>${esc(f.bdr)}</td><td>${esc(f.ventana)}</td>
+        <td><span class="tag ${f.estado === "Rechazado" ? "neg" : esEntrega(f) ? "pos" : f.estado === "Pendiente visitar" ? "azul" : "warn"}">${esc(f.estadoRaw || f.estado)}</span></td><td>${esc(f.alerta)}</td><td>${esc(f.tipoAlerta)}</td><td>${esc(f.fhAlerta)}</td><td>${esc(f.retro)}</td></tr>`).join("")}
+    </tbody></table></div>${pags > 1 ? `<div class="row">${Array.from({ length: pags }, (_, i) => `<button class="mini ${i === ANA.pag ? "primary" : ""}" data-apag="${i}">${i + 1}</button>`).join("")}</div>` : ""}`
+      : `<div class="card vacio">No hay datos en este rango. Pega el Detalle del plan arriba.</div>`}`;
+  $("aFecha").onchange = e => { ANA.fecha = e.target.value; };
+  $("aAgregar").onclick = () => {
+    const r = parsearAnalisis($("aPegar").value); if (r.err) { $("aMsg").textContent = "⚠ " + r.err; return; }
+    const fe = $("aFecha").value; if (!fe) { $("aMsg").textContent = "⚠ Elige la fecha del plan."; return; }
+    const key = f => [f.fecha, f.ruta, f.viaje, f.idCli].join("|"), idx = new Map(S.analisis.filas.map((f, i) => [key(f), i]));
+    let nuevos = 0, act = 0;
+    r.filas.forEach(f => { f.fecha = fe; const k = key(f); if (idx.has(k)) { S.analisis.filas[idx.get(k)] = f; act++; } else { idx.set(k, S.analisis.filas.length); S.analisis.filas.push(f); nuevos++; } });
+    ANA.desde = ANA.desde > fe ? fe : ANA.desde; ANA.hasta = ANA.hasta < fe ? fe : ANA.hasta;
+    guardar(); render(); toast(`${nuevos} fila(s) nuevas y ${act} actualizadas (${fmtF(fe)}).`);
+  };
+  m.querySelectorAll("[data-adel]").forEach(b => b.onclick = () => {
+    if (!b.dataset.ok) { b.dataset.ok = 1; b.textContent = "¿Borrar?"; return; }
+    S.analisis.filas = S.analisis.filas.filter(f => f.fecha !== b.dataset.adel); guardar(); render();
+  });
+  $("aDesde").onchange = e => { ANA.desde = e.target.value; ANA.pag = 0; render(); };
+  $("aHasta").onchange = e => { ANA.hasta = e.target.value; ANA.pag = 0; render(); };
+  $("aRuta").onchange = e => { ANA.ruta = e.target.value; ANA.pag = 0; render(); };
+  $("aEst").onchange = e => { ANA.estado = e.target.value; ANA.pag = 0; render(); };
+  const q = $("aQ"); q.oninput = () => { ANA.q = q.value; ANA.pag = 0; clearTimeout(q._t); q._t = setTimeout(() => { render(); const n = $("aQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 300); };
+  m.querySelectorAll("[data-at]").forEach(b => b.onclick = () => { ANA.tab = b.dataset.at; render(); });
+  m.querySelectorAll("[data-apag]").forEach(b => b.onclick = () => { ANA.pag = +b.dataset.apag; render(); });
+  $("aExcel").onclick = () => exportarAnalisis(fs);
+}
+function exportarAnalisis(fs) {
+  if (typeof ExcelJS === "undefined") return toast("No se pudo cargar la librería de Excel (revisa tu internet).");
+  const wb = new ExcelJS.Workbook();
+  hoja(wb, "Datos", ["Fecha", ...ANA_COLS.map(c => c[1]).slice(0, 2), "Placa", ...ANA_COLS.map(c => c[1]).slice(2), "Estado (agrupado)"],
+    fs.map(f => [fmtF(f.fecha), f.edt, f.ruta, placaDeRuta(f.ruta), f.viaje, f.idCli, f.cliente, f.hl, f.cajas, f.supervisor, f.bdr, f.ventana, f.estadoRaw, f.alerta, f.tipoAlerta, f.fhAlerta, f.retro, f.estado]));
+  const T = agrupaAna(fs, () => "Total")[0];
+  const wd = hoja(wb, "Dashboard", ["Indicador", "Valor"], [["Rutas", T.rutas.size], ["Clientes", T.n], ["HL plan", +hl2(T.hl)], ["Cajas", Math.round(T.cajas)], ["Entregados (incl. parciales)", T.ent],
+    ["Efectividad clientes", pct(T.efec)], ["Efectividad HL", pct(T.efecHl)], ["Rechazos", T.rec], ["HL rechazados", +hl2(T.hlRec)], ["% rechazo HL", pct(T.pRecHl)], ["Pendientes visitar", T.pend], ["Reprogramados", T.rep], ["Alertas", T.alertas], ["Demoras", T.demora]]);
+  wd.orderNo = -1;
+  const cols = g => [g.n, +hl2(g.hl), Math.round(g.cajas), g.ent, g.rec, +hl2(g.hlRec), pct(g.pRecHl), g.pend, g.rep, pct(g.efec), pct(g.efecHl), g.alertas, g.demora];
+  const cab = ["Clientes", "HL plan", "Cajas", "Entregados", "Rechazos", "HL rechazo", "% rechazo HL", "Pendientes", "Reprogramados", "Efectividad", "Efectividad HL", "Alertas", "Demoras"];
+  hoja(wb, "Por ruta", ["Ruta", "Placa", ...cab], agrupaAna(fs, f => f.ruta).sort((a, b) => a.k.localeCompare(b.k)).map(g => [g.k, placaDeRuta(g.k), ...cols(g)]));
+  hoja(wb, "Por supervisor", ["Supervisor", ...cab], agrupaAna(fs, f => f.supervisor).map(g => [g.k, ...cols(g)]));
+  hoja(wb, "Por fecha", ["Fecha", ...cab], agrupaAna(fs, f => f.fecha).sort((a, b) => a.k.localeCompare(b.k)).map(g => [fmtF(g.k), ...cols(g)]));
+  hoja(wb, "Por estado", ["Estado BEES", "Clientes", "HL"], agrupaAna(fs, f => f.estado).map(g => [g.k, g.n, +hl2(g.hl)]));
+  hoja(wb, "Rechazos", ["Fecha", "Ruta", "Placa", "ID Cliente", "Cliente", "HL", "Cajas", "Supervisor", "BDR", "Retroalimentación"], fs.filter(f => f.estado === "Rechazado").map(f => [fmtF(f.fecha), f.ruta, placaDeRuta(f.ruta), f.idCli, f.cliente, f.hl, f.cajas, f.supervisor, f.bdr, f.retro]));
+  hoja(wb, "Alertas", ["Fecha", "Ruta", "ID Cliente", "Cliente", "Tipo alerta", "Fecha hora alerta", "Retroalimentación"], fs.filter(f => f.tipoAlerta || /^s[ií]/i.test(f.alerta)).map(f => [fmtF(f.fecha), f.ruta, f.idCli, f.cliente, f.tipoAlerta, f.fhAlerta, f.retro]));
+  guardarWb(wb, `analisis_plan_${ANA.desde}${ANA.hasta !== ANA.desde ? "_al_" + ANA.hasta : ""}.xlsx`);
 }
 
 function vVehiculos(m) {
@@ -3049,8 +3239,10 @@ function exportarReporte(ls, desde, hasta) {
   const wresp = hoja(wb, "Por responsable", ["Responsable que recibe", "Pagos", ...MEDIOS.map(mm => mm + " S/"), "Total recibido S/"], filasResp, [...MEDIOS.map((_, i) => 2 + i), 2 + MEDIOS.length]);
   wresp.lastRow.font = { bold: true };
   hoja(wb, "Descuentos", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Persona", "DNI", "Tipo", "Monto S/", "Corresponde a"], filasCobros(ls, "descuento"), [7]);
+  const filasCons = []; ls.forEach(l => { const v = vehiculo(l.vehId) || {}; (l.cobros || []).filter(x => x.tipo === "consumo").forEach(x => filasCons.push([fmtF(l.fecha), v.placa, v.bk, l.pdf.enc.viaje, x.nombre, RUBROS[x.rubro] || "", x.comentario || "", x.monto])); });
+  if (filasCons.length) hoja(wb, "Consumo interno", ["Fecha", "Placa", "Nombre comercial", "Nº viaje", "Responsable", "Corresponde a", "Comentario", "Monto S/"], filasCons, [7]);
   const col = {};
-  ls.forEach(l => (l.cobros || []).forEach(x => { const k = (x.dni || "") + "|" + x.nombre; const p = col[k] = col[k] || [x.nombre, x.dni, 0, 0, 0];
+  ls.forEach(l => (l.cobros || []).filter(x => x.tipo !== "consumo").forEach(x => { const k = (x.dni || "") + "|" + x.nombre; const p = col[k] = col[k] || [x.nombre, x.dni, 0, 0, 0];
     if (x.tipo === "pago") p[2] = r2(p[2] + x.monto); else p[3] = r2(p[3] + x.monto); p[4] = r2(p[2] + p[3]); }));
   const filasCol = Object.values(col).sort((a, b) => a[0].localeCompare(b[0]));
   filasCol.push(["TOTAL", "", r2(filasCol.reduce((a, r) => a + r[2], 0)), r2(filasCol.reduce((a, r) => a + r[3], 0)), r2(filasCol.reduce((a, r) => a + r[4], 0))]);
