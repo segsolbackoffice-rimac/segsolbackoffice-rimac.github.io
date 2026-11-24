@@ -1017,7 +1017,15 @@ function vLiquidar(m) {
 
 function resumenLiq(l) {
   const c = calc(l);
-  return c.aCobrar ? `A cobrar <b class="neg">${soles(c.aCobrar, false)}</b>${c.pendiente > 0 ? ` · falta <b>${soles(c.pendiente, false)}</b>` : ""}`
+  const cob = (l.cobros || []).filter(x => x.rubro !== "otro"), sum = t => r2(cob.filter(x => x.tipo === t).reduce((a, x) => a + x.monto, 0));
+  const pg = sum("pago"), ds = sum("descuento"), cs = sum("consumo"), partes = [];
+  if (pg && ds) partes.push(`<span class="tag warn">Pagado parcial</span> <b class="pos">${soles(pg, false)}</b> · Descuento <b class="neg">${soles(ds, false)}</b>`);
+  else if (pg) partes.push(`<span class="tag pos">Pagado</span> <b class="pos">${soles(pg, false)}</b>`);
+  else if (ds) partes.push(`<span class="tag neg">Descuento</span> <b class="neg">${soles(ds, false)}</b>`);
+  if (cs) partes.push(`Consumo interno <b>${soles(cs, false)}</b>`);
+  if (c.credito) partes.push(`Neteado <b class="pos">${soles(c.credito, false)}</b>`);
+  if (c.aCobrar && c.pendiente > 0) partes.push(`${pg || ds || cs ? "Falta" : "Pendiente"} <b class="neg">${soles(c.pendiente, false)}</b>`);
+  return partes.length ? partes.join(" · ")
     : c.aFavor ? `Sobrante a favor <b class="pos">${soles(c.aFavor, false)}</b>` : `Neto <b>${soles(0, false)}</b> · sin cobro`;
 }
 function estadoVeh(ls) {
