@@ -1261,7 +1261,8 @@ function pintarPanel() {
       <tr><td>🍾 Vacíos (envases)</td><td class="num pos">${soles(c.vac.sobr)}</td><td class="num neg">${soles(c.vac.falt)}</td><td class="num ${cls(c.vac.neto)}"><b>${soles(c.vac.neto)}</b></td></tr>
       <tr><td>🍺 Líquido (productos)${l.incluirProductos ? "" : ` <small class="ayuda">— no se cobra (activa “Cobrar productos”)</small>`}</td>
         <td class="num pos">${soles(c.liq.sobr)}</td><td class="num neg">${soles(c.liq.falt)}</td><td class="num ${cls(c.liq.neto)}"><b>${soles(c.liq.neto)}</b></td></tr>
-      <tr class="tot"><td><b>Total</b></td><td class="num pos"><b>${soles(c.sobr)}</b></td><td class="num neg"><b>${soles(c.falt)}</b></td><td class="num ${cls(c.neto)}"><b>${soles(c.neto)}</b></td></tr>
+      ${c.separa ? `<tr class="tot"><td><b>Total a cobrar</b> <small class="ayuda" style="margin:0">— vacíos y productos no se compensan entre sí</small></td><td class="num pos">${c.aFavor ? `<b>${soles(c.aFavor)}</b><br><small class="ayuda" style="margin:0">sobrante</small>` : ""}</td><td></td><td class="num ${c.aCobrar ? "neg" : ""}"><b>${c.aCobrar ? "−" + soles(c.aCobrar, false) : soles(0, false)}</b></td></tr>`
+        : `<tr class="tot"><td><b>Total</b></td><td class="num pos"><b>${soles(c.sobr)}</b></td><td class="num neg"><b>${soles(c.falt)}</b></td><td class="num ${cls(c.neto)}"><b>${soles(c.neto)}</b></td></tr>`}
     </tbody></table></div>
     <div id="secProd"></div>${tablaSeccion("Productos", secs.has("Productos"), c.lineas, "productos", l)}
     ${l.incluirProductos && c.lineas.some(x => x.seccion === "Productos") ? `<p class="ayuda" style="margin:4px 0 0">La diferencia del PDF viene en paquetes: Unidades = diferencia × unidades por paquete. Para cambiar las unidades por paquete (six pack = 6), marca “Editar unidades por paquete”.</p>` : ""}
@@ -1525,9 +1526,10 @@ function seccionCobro(l, c, trip) {
   return `
     <h3>Cobro de la liquidación</h3>
     <div class="estado-cobro">
-      ${c.aFavor ? `<div>Sobrante a favor<br><b class="pos">${soles(c.aFavor, false)}</b></div>` : ""}
+      ${c.separa ? `${c.aFavorVac > 0 ? `<div>Sobrante de vacíos<br><b class="pos">${soles(c.aFavorVac, false)}</b></div>` : ""}${c.aFavorLiq > 0 ? `<div title="El sobrante de productos no compensa faltantes de vacíos">Sobrante de productos<br><b class="pos">${soles(c.aFavorLiq, false)}</b><br><small class="ayuda" style="margin:0">no compensa vacíos</small></div>` : ""}`
+        : c.aFavor ? `<div>Sobrante a favor<br><b class="pos">${soles(c.aFavor, false)}</b></div>` : ""}
       ${c.credito ? `<div>Faltante neto<br><b>${soles(c.aCobrarBase, false)}</b></div><div>Saldo a favor aplicado<br><b class="pos">−${soles(c.credito, false)}</b></div>` : ""}
-      <div>A cobrar${c.credito ? "" : " (neto)"}<br><b>${soles(c.aCobrar, false)}</b></div>
+      <div>A cobrar${c.separa ? ` (${["vac", "liq"].filter(k => c.rub[k].deuda > 0).map(k => RUBROS[k].toLowerCase()).join(" + ") || "faltantes"})` : c.credito ? "" : " (neto)"}<br><b>${soles(c.aCobrar, false)}</b></div>
       <div>Pagado<br><b class="pos">${soles(c.pagado, false)}</b></div>
       <div>Descuento<br><b class="neg">${soles(c.descontado, false)}</b></div>
       ${c.consumo ? `<div>Consumo interno<br><b style="color:var(--brand)">${soles(c.consumo, false)}</b></div>` : ""}
