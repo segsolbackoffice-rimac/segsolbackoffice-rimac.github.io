@@ -570,7 +570,7 @@ function sincCatalogo() {
   let cambio = false;
   const liqs = Object.values(S.liqs).filter(l => l.pdf).sort((a, b) => (a.fecha + (a.creado || "")).localeCompare(b.fecha + (b.creado || "")));
   for (const l of liqs) for (const x of l.pdf.lineas) {
-    if (x.seccion !== "Productos" || catProd(x.codigo)) continue;
+    if ((x.seccion !== "Productos" && x.seccion !== "Bloqueados") || catProd(x.codigo)) continue;
     const cod = String(x.codigo), r = rubroProd(x.nombre);
     const pr = [...liqs].reverse().map(o => (o.preciosProd || {})[cod]).find(v => !vacioN(v)) ?? S.preciosProd[cod];
     const fa = (S.factorProd || {})[cod] ?? [...liqs].reverse().map(o => (o.factorProd || {})[cod]).find(v => v > 0);
@@ -696,7 +696,9 @@ const parchesDe = (l, AJ) => l.parchesManual ? (l.parches || [])
   : (l.parchar === false ? [] : parchesAuto(l, AJ || mapaAjustes(l)));
 function calcBase(l) {
   const P = l.estado === "cerrada" && l.precios ? l.precios : S.precios;
-  const r = { lineas: [], bot: 0, caj: 0, prod: 0, sobr: 0, falt: 0, prodMonto: 0, prodSinPrecio: 0, vac: { sobr: 0, falt: 0 }, liq: { sobr: 0, falt: 0 } };
+  const r = { lineas: [], bot: 0, caj: 0, prod: 0, sobr: 0, falt: 0, prodMonto: 0, prodSinPrecio: 0, vac: { sobr: 0, falt: 0 }, liq: { sobr: 0, falt: 0 }, blo: { sobr: 0, falt: 0 }, bloSinPrecio: 0 };
+  // Bloqueados: se cobran/pagan como líquido (precio x unidad del catálogo). Las cerradas antes de este cambio no los cobraban.
+  r.cobraBlo = l.estado !== "cerrada" || (l.reglaRubros || 0) >= 2;
   const AJ = mapaAjustes(l);
   const PAR = {}, parches = parchesDe(l, AJ);
   parches.forEach(p => { PAR[p.sob] = (PAR[p.sob] || 0) - p.cant; PAR[p.fal] = (PAR[p.fal] || 0) + p.cant; });
@@ -720,6 +722,11 @@ function calcBase(l) {
         if (pr != null) { x.precio = +pr; x.dinero = r2(x.unidades * pr); if (x.dinero > 0) { r.sobr += x.dinero; r.liq.sobr += x.dinero; } else { r.falt += x.dinero; r.liq.falt += x.dinero; } r.prodMonto += x.dinero; }
         else if (ln.diferencia) r.prodSinPrecio++;
       }
+    } else if (ln.seccion === "Bloqueados" && r.cobraBlo) {
+      const pr = precioProdLiq(l, ln.codigo);
+      x.factor = factorProd(l, ln); x.unidades = ln.diferencia * x.factor;
+      if (pr != null) { x.precio = +pr; x.dinero = r2(x.unidades * pr); const k = x.dinero > 0 ? "sobr" : "falt"; r[k] += x.dinero; r.liq[k] += x.dinero; r.blo[k] += x.dinero; }
+      else if (ln.diferencia) r.bloSinPrecio++;
     }
     r.lineas.push(x);
   }
@@ -728,7 +735,7 @@ function calcBase(l) {
     if (l.anulGrupo[g.k] && g.din > 0) { r.anulGrupo[g.k] = g.din; r.sobr -= g.din; r.vac.sobr -= g.din; }
   });
   r.sobr = r2(r.sobr); r.falt = r2(r.falt); r.prodMonto = r2(r.prodMonto);
-  ["vac", "liq"].forEach(k => { r[k].sobr = r2(r[k].sobr); r[k].falt = r2(r[k].falt); r[k].neto = r2(r[k].sobr + r[k].falt); });
+  ["vac", "liq", "blo"].forEach(k => { r[k].sobr = r2(r[k].sobr); r[k].falt = r2(r[k].falt); r[k].neto = r2(r[k].sobr + r[k].falt); });
   r.neto = r2(r.sobr + r.falt);
   // Vacíos y productos no se mezclan: el sobrante de vacíos solo compensa faltantes de vacíos (y productos con productos).
   // Las liquidaciones cerradas antes de esta regla conservan el cálculo con el que se cerraron.
@@ -1185,15 +1192,16 @@ function tablaSeccion(nombre, existe, lineas, modo, l) {
         <input type="checkbox" id="chkFactor" ${l.editarFactor ? "checked" : ""} ${l.estado === "cerrada" ? "disabled" : ""}> Editar unidades por paquete</label>` : ""}`;
   }
   if (!ls.length) return `<h3>${nombre} ${tag}</h3>`;
-  const conDinero = modo === "vacios" || (modo === "productos" && l.incluirProductos);
-  const prod = modo === "productos" && l.incluirProductos, editable = l.estado !== "cerrada";
+  const conDinero = modo === "vacios" || (modo === "productos" && l.incluirProductos) || modo === "bloqueados";
+  const prod = (modo === "productos" && l.incluirProductos) || modo === "bloqueados", editable = l.estado !== "cerrada";
+  if (modo === "bloqueados") extra = `<span class="ayuda" style="margin:0 0 0 10px;font-weight:400">Se cobran o pagan como líquido, con el precio por unidad de 🏷️ Productos.</span>`;
   return `<h3>${nombre} ${tag}${extra}</h3><div class="scroll card" style="padding:0"><table><thead><tr>
     <th>Código</th><th>Descripción</th><th class="num">Conductor</th><th class="num">Sistema</th><th class="num">Diferencia</th>
     ${prod ? `<th class="num">Unid. por paquete</th><th class="num">Unidades</th><th class="num">Precio x unidad</th><th class="num">Dinero</th>`
       : conDinero ? `<th>Tipo</th><th class="num">Precio</th><th class="num">Dinero</th>` : ""}</tr></thead><tbody>
     ${ls.map(x => `<tr><td>${esc(x.codigo)}</td><td>${nombreProd(x)}</td><td class="num">${x.conductor}</td><td class="num">${x.sistema}</td>
       <td class="num"><span class="tag ${cls(x.diferencia)}">${und(x.diferencia)}</span>${x.ajuste || x.parche || x.anulado ? `<br><small class="ayuda" style="white-space:nowrap">PDF ${und(x.difPdf)}${x.ajuste ? " · ZPD " + und(x.ajuste) : ""}${x.parche ? " · parche " + und(x.parche) : ""}${x.anulado ? ` · <b style="color:var(--muted)">sobrante anulado ${und(-x.anulado)}</b>` : ""}</small>` : ""}
-        ${l.estado !== "cerrada" && (x.anulado || x.diferencia > 0) && (modo === "vacios" || modo === "productos") ? `<br><button class="mini" data-anul="${esc(x.seccion + "|" + x.codigo)}" title="${x.anulado ? "Volver a contar este sobrante" : "Este sobrante no suma ni compensa faltantes"}" style="margin-top:3px;font-size:11px">${x.anulado ? "↺ Restaurar sobrante" : "⊘ Anular sobrante"}</button>` : ""}</td>
+        ${l.estado !== "cerrada" && (x.anulado || x.diferencia > 0) && (modo === "vacios" || modo === "productos" || modo === "bloqueados") ? `<br><button class="mini" data-anul="${esc(x.seccion + "|" + x.codigo)}" title="${x.anulado ? "Volver a contar este sobrante" : "Este sobrante no suma ni compensa faltantes"}" style="margin-top:3px;font-size:11px">${x.anulado ? "↺ Restaurar sobrante" : "⊘ Anular sobrante"}</button>` : ""}</td>
       ${prod ? `<td class="num">${editable && l.editarFactor ? `<input class="precio" type="number" step="1" min="1" data-fac="${esc(x.codigo)}" value="${x.factor}" title="Ej. six pack = 6">`
           + (factorSugerido(x.nombre) && factorSugerido(x.nombre) !== x.factor ? `<br><a href="#" data-sugf="${esc(x.codigo)}|${factorSugerido(x.nombre)}" style="font-size:11px">usar ${factorSugerido(x.nombre)}</a>` : "") : x.factor}</td>
         <td class="num"><b class="${cls(x.unidades)}">${und(x.unidades)}</b></td>
@@ -1210,7 +1218,7 @@ function guiaLiq(l, c, trip) {
   const cerrada = l.estado === "cerrada", nAj = (l.ajustes || []).filter(a => a.codigo !== "COMENTARIO").length;
   const sv = c.vac.neto, sp = c.liq.neto, vig = !cerrada && c.rub.vac.pend > 0 ? saldosVigentes(l, trip) : [];
   const dif = `Vacíos: <b class="${cls(sv)}">${sv > 0 ? "sobra " + soles(sv, false) : sv < 0 ? "falta " + soles(-sv, false) : "sin diferencia"}</b><br>
-    Productos: ${l.incluirProductos ? `<b class="${cls(sp)}">${sp > 0 ? "sobra " + soles(sp, false) : sp < 0 ? "falta " + soles(-sp, false) : "sin diferencia"}</b>` : `<span class="ayuda" style="margin:0">no se cobran</span>`}`;
+    Productos${c.blo.neto ? " + bloqueados" : ""}: ${l.incluirProductos || c.blo.neto ? `<b class="${cls(sp)}">${sp > 0 ? "sobra " + soles(sp, false) : sp < 0 ? "falta " + soles(-sp, false) : "sin diferencia"}</b>` : `<span class="ayuda" style="margin:0">no se cobran</span>`}`;
   const cobro = cerrada ? `✔ Cerrada · cubierto ${soles(c.cubierto + c.credito, false)}`
     : c.pendiente > 0 ? `Falta cubrir <b class="neg">${soles(c.pendiente, false)}</b>${["vac", "liq"].filter(k => c.rub[k].pend > 0).map(k => `<br>${RUBROS[k]}: ${soles(c.rub[k].pend, false)}`).join("")}`
     : c.aCobrar > 0 || c.cubierto ? `✔ Todo cubierto: ya puedes cerrar` : `Nada que cobrar: ya puedes cerrar`;
@@ -1260,7 +1268,9 @@ function pintarPanel() {
     <div class="card scroll" style="padding:0"><table class="resumen"><thead><tr><th>Resumen</th><th class="num">Sobrante</th><th class="num">Faltante</th><th class="num">Neto</th></tr></thead><tbody>
       <tr><td>🍾 Vacíos (envases)</td><td class="num pos">${soles(c.vac.sobr)}</td><td class="num neg">${soles(c.vac.falt)}</td><td class="num ${cls(c.vac.neto)}"><b>${soles(c.vac.neto)}</b></td></tr>
       <tr><td>🍺 Líquido (productos)${l.incluirProductos ? "" : ` <small class="ayuda">— no se cobra (activa “Cobrar productos”)</small>`}</td>
-        <td class="num pos">${soles(c.liq.sobr)}</td><td class="num neg">${soles(c.liq.falt)}</td><td class="num ${cls(c.liq.neto)}"><b>${soles(c.liq.neto)}</b></td></tr>
+        <td class="num pos">${soles(r2(c.liq.sobr - c.blo.sobr))}</td><td class="num neg">${soles(r2(c.liq.falt - c.blo.falt))}</td><td class="num ${cls(c.liq.neto - c.blo.neto)}"><b>${soles(r2(c.liq.neto - c.blo.neto))}</b></td></tr>
+      ${c.cobraBlo && (c.blo.sobr || c.blo.falt || c.bloSinPrecio) ? `<tr><td>🔒 Bloqueados <small class="ayuda">— líquido: se suma a productos${c.bloSinPrecio ? `; <b class="neg">${c.bloSinPrecio} sin precio</b>` : ""}</small></td>
+        <td class="num pos">${soles(c.blo.sobr)}</td><td class="num neg">${soles(c.blo.falt)}</td><td class="num ${cls(c.blo.neto)}"><b>${soles(c.blo.neto)}</b></td></tr>` : ""}
       ${c.separa ? `<tr class="tot"><td><b>Total a cobrar</b> <small class="ayuda" style="margin:0">— vacíos y productos no se compensan entre sí</small></td><td class="num pos">${c.aFavor ? `<b>${soles(c.aFavor)}</b><br><small class="ayuda" style="margin:0">sobrante</small>` : ""}</td><td></td><td class="num ${c.aCobrar ? "neg" : ""}"><b>${c.aCobrar ? "−" + soles(c.aCobrar, false) : soles(0, false)}</b></td></tr>`
         : `<tr class="tot"><td><b>Total</b></td><td class="num pos"><b>${soles(c.sobr)}</b></td><td class="num neg"><b>${soles(c.falt)}</b></td><td class="num ${cls(c.neto)}"><b>${soles(c.neto)}</b></td></tr>`}
     </tbody></table></div>
@@ -1268,7 +1278,7 @@ function pintarPanel() {
     ${l.incluirProductos && c.lineas.some(x => x.seccion === "Productos") ? `<p class="ayuda" style="margin:4px 0 0">La diferencia del PDF viene en paquetes: Unidades = diferencia × unidades por paquete. Para cambiar las unidades por paquete (six pack = 6), marca “Editar unidades por paquete”.</p>` : ""}
     ${l.incluirProductos && c.prodSinPrecio ? `<p class="ayuda m-warn">Hay ${c.prodSinPrecio} producto(s) sin precio: no suman al cobro hasta que les pongas precio.</p>` : ""}
     ${seccionParches(l, c)}
-    ${tablaSeccion("Bloqueados", secs.has("Bloqueados"), c.lineas, "otros", l)}
+    ${tablaSeccion("Bloqueados", secs.has("Bloqueados"), c.lineas, c.cobraBlo ? "bloqueados" : "otros", l)}
     <div id="secVac"></div>${tablaSeccion("Vacíos", secs.has("Vacíos"), c.lineas, "vacios", l)}
     ${(() => { const sp = c.lineas.filter(x => x.seccion === "Vacíos" && x.precio == null); return sp.length ? `<p class="ayuda m-warn">⚠ ${sp.length} envase(s) sin precio no suman al cobro: ${sp.map(x => esc(x.nombre)).join(", ")}. No se pudo saber si es caja o botella ni su medida.</p>` : ""; })()}
     ${totalesVacios(c, l)}
@@ -1776,7 +1786,7 @@ function enlazarCobro(l, c, trip) {
     });
     l.totalesCierre = { neto: cc.neto, aCobrar: cc.aCobrar, pagado: cc.pagado, descontado: cc.descontado, vac: cc.vac.neto, liq: cc.liq.neto };
     if (cm) l.comentarioCierre = cm.value.trim();
-    l.estado = "cerrada"; l.cerradaEn = new Date().toISOString(); l.reglaRubros = 1;
+    l.estado = "cerrada"; l.cerradaEn = new Date().toISOString(); l.reglaRubros = 2;
     l.precios = { ...S.precios }; l.tripulacion = tripLiq({ ...l, estado: "abierta" });
     guardar(); toast("Liquidación cerrada."); pintarPanel(); render();
   };
