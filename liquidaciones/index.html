@@ -309,14 +309,23 @@ function parsearLiquidacion(paginas) {
         return;
       }
       const primera = (toks[0] || "").toLowerCase();
-      if (SECCIONES[primera] && /inconsistencia/i.test(t)) { seccion = SECCIONES[primera]; return; }   // "1 Inconsistencia" o "2 Inconsistencias"
+      if (SECCIONES[primera] && /inconsistencia/i.test(t)) {
+        seccion = SECCIONES[primera];
+        const n = t.match(/(\d+)\s*inconsistencia/i); enc.inconsistencias = enc.inconsistencias || {}; enc.inconsistencias[seccion] = n ? +n[1] : 0;
+        return;
+      }   // "1 Inconsistencia" o "2 Inconsistencias"
       if (!seccion) return;
       const iR = toks.findIndex(x => RE_RATIO.test(x));
-      if (iR < 2) return;
+      if (iR < 1) return;
       const codigo = toks[iR - 1].replace(/^#/, "").replace(/^0+(?=\d)/, "");   // "#000000000000014259" → "14259"
       if (!RE_NUM.test(codigo)) return;
       const [, x, y] = toks[iR].match(RE_RATIO);
-      lineas.push({ seccion, codigo, nombre: toks.slice(0, iR - 1).join(" "),
+      let nombre = toks.slice(0, iR - 1).join(" ");
+      if (!nombre) {   // la descripción quedó en los renglones de arriba/abajo (texto en 2 renglones con el código al centro)
+        const suelto = g => g && Math.abs(g.top - fila.top) <= 12 && !g.tokens.some(o => RE_RATIO.test(o.t)) && !g.tokens.some(o => RE_NUM.test(o.t.replace(/^#/, "")) && o.t.length >= 4);
+        nombre = [filas[k - 1], filas[k + 1]].filter(suelto).map(g => g.texto).join(" ");
+      }
+      lineas.push({ seccion, codigo, nombre,
         conductor: +x, sistema: +y, diferencia: (+x) - (+y) });
     });
   }
@@ -1304,6 +1313,8 @@ function pintarPanel() {
       <div><span>Revisor</span><b>${esc(e.revisor)}</b></div>
     </div>
     ${guiaLiq(l, c, trip)}
+    ${(() => { const inc = (e.inconsistencias || {}), mal = Object.entries(inc).filter(([sec, n]) => l.pdf.lineas.filter(x => x.seccion === sec && x.diferencia !== 0).length !== n);
+      return mal.length ? `<div class="card m-err" style="padding:10px 14px">⚠ El PDF indica ${mal.map(([sec, n]) => `<b>${n}</b> inconsistencia(s) en ${sec} y se leyeron <b>${l.pdf.lineas.filter(x => x.seccion === sec && x.diferencia !== 0).length}</b>`).join("; ")}. Revisa el PDF o vuelve a cargarlo.</div>` : ""; })()}
     ${!placaCoincide(e.placa, v.placa) ? `<div class="card m-warn" style="padding:10px 14px">⚠ La placa del PDF (${esc(e.placa)}) no coincide con el vehículo ${esc(v.placa)}.</div>` : ""}
     <div class="kpis">
       <div class="kpi"><span>Botellas (neto)</span><b class="${cls(c.bot)}">${und(c.bot)}</b></div>
@@ -3184,6 +3195,39 @@ function vVehiculos(m) {
 // =====================================================================
 // VISTA: Configuración
 // =====================================================================
+let VERIF = [];
+function pintarVerif() {
+  const box = $("vfRes"); if (!box) return;
+  if (!VERIF.length) { box.innerHTML = ""; return; }
+  box.innerHTML = `<div class="scroll"><table><thead><tr><th>Archivo</th><th>Liquidación</th><th>Estado</th><th>Resultado</th><th class="num">Impacto a cobrar</th><th></th></tr></thead><tbody>
+    ${VERIF.map((r, i) => `<tr><td style="font-size:12px">${esc(r.archivo)}</td><td>${r.l ? `<b>${esc((vehiculo(r.l.vehId) || {}).placa || "")}</b> · ${fmtF(r.l.fecha)}${etqViaje(r.l)}<br><small class="ayuda">${esc(r.viaje)}</small>` : esc(r.viaje || "")}</td>
+      <td>${r.l ? (r.l.estado === "cerrada" ? `<span class="tag">Cerrada</span>` : `<span class="tag warn">Abierta</span>`) : ""}</td>
+      <td style="font-size:12.5px">${r.err ? `<span class="neg">${esc(r.err)}</span>` : r.cambios.length ? r.cambios.map(x => `<div>${esc(x.seccion)} · <b>${esc(x.codigo)}</b> ${esc(x.nombre)}: guardado <b>${und(x.antes)}</b> → PDF <b class="${cls(x.ahora)}">${und(x.ahora)}</b></div>`).join("") : `<span class="pos">✔ Lectura correcta</span>`}</td>
+      <td class="num ${r.impacto ? "neg" : ""}">${r.cambios && r.cambios.length ? soles(r.impacto) : ""}</td>
+      <td>${r.cambios && r.cambios.length && r.l && r.l.estado !== "cerrada" && !r.hecho ? `<button class="primary mini" data-vfu="${i}">Actualizar lectura</button>` : r.hecho ? `<span class="pos">Actualizada</span>` : r.cambios && r.cambios.length ? `<small class="ayuda">Reábrela para actualizar</small>` : ""}</td></tr>`).join("")}
+  </tbody></table></div>`;
+  box.querySelectorAll("[data-vfu]").forEach(b => b.onclick = () => {
+    const r = VERIF[+b.dataset.vfu]; if (!r.l || r.l.estado === "cerrada") return;
+    r.l.pdf = { ...r.pdf }; r.hecho = true; guardar(); pintarVerif(); toast("Lectura actualizada.");
+  });
+}
+async function verificarPdfs(files) {
+  VERIF = []; $("vfRes").innerHTML = `<span class="ayuda">Leyendo ${files.length} PDF…</span>`;
+  for (const f of files) {
+    try {
+      const pdf = await leerArchivo(f);
+      const l = Object.values(S.liqs).filter(x => x.pdf && x.pdf.base === pdf.base).sort((a, b) => (b.pdf.rep || 0) - (a.pdf.rep || 0))[0];
+      if (!l) { VERIF.push({ archivo: f.name, viaje: pdf.enc.viaje, err: "No hay una liquidación cargada con este viaje." }); continue; }
+      const mapa = ls => { const m = {}; ls.forEach(x => { m[x.seccion + "|" + x.codigo] = x; }); return m; };
+      const A = mapa(l.pdf.lineas), B = mapa(pdf.lineas), cambios = [];
+      new Set([...Object.keys(A), ...Object.keys(B)]).forEach(k => { const a = A[k], b = B[k], da = a ? a.diferencia : 0, db = b ? b.diferencia : 0;
+        if (da !== db) cambios.push({ seccion: (b || a).seccion, codigo: (b || a).codigo, nombre: (b || a).nombre, antes: da, ahora: db }); });
+      const c1 = calcBase(l), c2 = calcBase({ ...l, pdf });
+      VERIF.push({ archivo: f.name, viaje: pdf.enc.viaje, l, pdf, cambios, impacto: r2(c1.aCobrar - c2.aCobrar) });
+    } catch (e) { VERIF.push({ archivo: f.name, err: "No se pudo leer: " + e.message }); }
+  }
+  pintarVerif();
+}
 function vConfig(m) {
   m.innerHTML = `
     <div class="card"><h2>Precios de envases</h2><p class="ayuda">Se usan en las liquidaciones abiertas. Al cerrar una liquidación, se guardan los precios de ese momento.</p>
@@ -3192,6 +3236,10 @@ function vConfig(m) {
         <label class="f">Botella ≥ 600 ml (S/)<input type="number" step="0.01" id="pg" value="${S.precios.grande}"></label>
         <label class="f">Botella &lt; 600 ml (S/)<input type="number" step="0.01" id="pch" value="${S.precios.chica}"></label>
       </div></div>
+    <div class="card"><h2>🔎 Verificar lecturas de PDFs anteriores</h2>
+      <p class="ayuda">Selecciona los PDF de liquidaciones ya cargadas (puedes elegir varios). Se vuelven a leer con el lector actual y se comparan con lo guardado: si alguna fila no se había leído, verás la diferencia y el monto. Las <b>abiertas</b> se pueden actualizar aquí; las <b>cerradas</b> hay que reabrirlas primero.</p>
+      <div class="row"><input type="file" id="vfPdf" accept="application/pdf" multiple></div>
+      <div id="vfRes" style="margin-top:10px"></div></div>
     <div class="card"><h2>Respaldo</h2>
       <p class="ayuda">Los datos (personal, vehículos, tripulaciones y liquidaciones) se guardan solo en este navegador. Descarga un respaldo con frecuencia; con él puedes pasar la información a otra computadora.</p>
       <div class="row"><button class="primary" id="bExp">Descargar respaldo</button><button id="bImp">Restaurar respaldo</button></div>
@@ -3213,6 +3261,8 @@ function vConfig(m) {
   };
   const setP = (id, k) => $(id).onchange = e => { S.precios[k] = Math.max(0, +e.target.value || 0); guardar(); toast("Precio actualizado."); };
   setP("pc", "caja"); setP("pg", "grande"); setP("pch", "chica");
+  $("vfPdf").onchange = e => { if (e.target.files.length) verificarPdfs([...e.target.files]); };
+  pintarVerif();
   $("bExp").onclick = () => descargar(`respaldo_liquidaciones_${hoyISO()}.json`, new Blob([JSON.stringify(S, null, 1)], { type: "application/json" }));
   $("bImp").onclick = () => $("fileJson").click();
   $("bBorrar").onclick = e => {
