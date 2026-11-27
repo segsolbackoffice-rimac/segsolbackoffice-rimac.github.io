@@ -202,21 +202,45 @@ const SECCIONES = { "productos": "Productos", "bloqueados": "Bloqueados", "vací
 const RE_RATIO = /^(\d+)\/(\d+)$/, RE_NUM = /^\d+$/, RE_DEN = /^\/(\d+)$/, RE_FECHA = /^\d{2}\/\d{2}\/\d{4}$/;
 
 // items: [{str, x, top}] (top = distancia desde arriba). Une "3624" + "/1044" partidos en dos renglones.
+function partirItems(items) {      // "3500323 2892" → dos items, con x aproximada por la posición del texto
+  const out = [];
+  items.forEach(it => {
+    const partes = it.str.split(/(\s+)/); if (partes.length === 1) { out.push(it); return; }
+    const w = it.w || it.str.length * 5, porChar = w / Math.max(1, it.str.length); let pos = 0;
+    partes.forEach(p => { if (p.trim()) out.push({ ...it, str: p, x: it.x + pos * porChar, w: p.length * porChar }); pos += p.length; });
+  });
+  return out;
+}
 function unirRatiosPartidos(items) {
+  items = partirItems(items);
   const usados = new Set(), nuevos = [];
   items.forEach((d, i) => {
-    if (!RE_DEN.test(d.str)) return;
+    if (!RE_DEN.test(d.str) && d.str !== "/") return;
     let mejor = -1;
     items.forEach((n, j) => {
       if (usados.has(j) || !RE_NUM.test(n.str)) return;
       const dy = d.top - n.top;
-      if (Math.abs(n.x - d.x) < 8 && dy > 0 && dy < 20 && (mejor < 0 || dy < d.top - items[mejor].top)) mejor = j;
+      if (Math.abs(n.x - d.x) < 40 && dy > 0 && dy < 20 && (mejor < 0 || dy < d.top - items[mejor].top)) mejor = j;
     });
     if (mejor >= 0) {
       const n = items[mejor];
       usados.add(i); usados.add(mejor);
       nuevos.push({ str: n.str + d.str, x: n.x, top: (n.top + d.top) / 2 });
     }
+  });
+  // "/" suelto + número en el mismo renglón ("2892" "/" "2904")
+  return unirBarraSuelta(items.filter((_, k) => !usados.has(k)).concat(nuevos));
+}
+function unirBarraSuelta(items) {
+  const usados = new Set(), nuevos = [];
+  items.forEach((d, i) => {
+    if (d.str !== "/" && !/^\d+\/$/.test(d.str)) return;
+    const sig = items.map((n, j) => ({ n, j })).filter(({ n, j }) => !usados.has(j) && j !== i && RE_NUM.test(n.str) && Math.abs(n.top - d.top) < 14 && n.x >= d.x - 2 && n.x - d.x < 40).sort((a, b) => Math.abs(a.n.top - d.top) - Math.abs(b.n.top - d.top))[0];
+    if (!sig) return;
+    let num = d.str === "/" ? items.map((n, j) => ({ n, j })).filter(({ n, j }) => !usados.has(j) && j !== i && j !== sig.j && RE_NUM.test(n.str) && Math.abs(n.top - d.top) < 14 && n.x < d.x && d.x - n.x < 40).sort((a, b) => (d.x - a.n.x) - (d.x - b.n.x))[0] : null;
+    if (d.str === "/" && !num) return;
+    usados.add(i); usados.add(sig.j); if (num) usados.add(num.j);
+    nuevos.push({ str: (num ? num.n.str + "/" : d.str) + sig.n.str, x: num ? num.n.x : d.x, top: d.top });
   });
   return items.filter((_, k) => !usados.has(k)).concat(nuevos);
 }
@@ -237,6 +261,26 @@ function agruparFilas(items, tol = 4) {
   return filas;
 }
 
+// Cuando la descripción ocupa 2 renglones y el "Trae/Pide" también ("2892" arriba, "/2904" abajo),
+// el ratio unido puede caer en el renglón de la descripción ("Unidad") y no en el del código.
+// Aquí se mueve ese ratio huérfano al renglón vecino que tiene el código y no tiene ratio.
+function reubicarRatios(filas) {
+  const ratioDe = f => f.tokens.findIndex(o => RE_RATIO.test(o.t));
+  const tieneCodigo = f => { const i = ratioDe(f); const ts = f.tokens.map(o => o.t); return i >= 2 && RE_NUM.test(ts[i - 1].replace(/^#/, "")); };
+  filas.forEach((f, k) => {
+    const iR = ratioDe(f); if (iR < 0 || tieneCodigo(f)) return;
+    let mejor = null;
+    filas.forEach((g, j) => {
+      if (j === k || ratioDe(g) >= 0 || Math.abs(g.top - f.top) > 18) return;
+      const ult = g.tokens[g.tokens.length - 1]; if (!ult || !RE_NUM.test(ult.t.replace(/^#/, "")) || g.tokens.length < 2) return;
+      if (!mejor || Math.abs(g.top - f.top) < Math.abs(mejor.top - f.top)) mejor = g;
+    });
+    if (!mejor) return;
+    const tok = f.tokens.splice(iR, 1)[0];
+    mejor.tokens.push(tok); mejor.texto = mejor.tokens.map(o => o.t).join(" "); f.texto = f.tokens.map(o => o.t).join(" ");
+  });
+}
+
 // paginas: [{width, items:[{str,x,top}]}]
 function parsearLiquidacion(paginas) {
   const enc = { conductor: "", viaje: "", placa: "", fechaEntrega: "", fechaRevision: "", revisor: "" };
@@ -245,6 +289,7 @@ function parsearLiquidacion(paginas) {
   for (const pag of paginas) {
     const items = unirRatiosPartidos(pag.items.filter(i => i.str && i.str.trim()).map(i => ({ ...i, str: i.str.trim() })));
     const filas = agruparFilas(items);
+    reubicarRatios(filas);
     const mitad = pag.width / 2;
     filas.forEach((fila, k) => {
       const t = fila.texto, toks = fila.tokens.map(o => o.t);
@@ -286,7 +331,7 @@ async function leerPdf(pdfjsLib, buffer) {
     const page = await pdf.getPage(p);
     const vp = page.getViewport({ scale: 1 });
     const tc = await page.getTextContent();
-    paginas.push({ width: vp.width, items: tc.items.map(it => ({ str: it.str, x: it.transform[4], top: vp.height - it.transform[5] })) });
+    paginas.push({ width: vp.width, items: tc.items.map(it => ({ str: it.str, x: it.transform[4], w: it.width, top: vp.height - it.transform[5] })) });
   }
   return parsearLiquidacion(paginas);
 }
